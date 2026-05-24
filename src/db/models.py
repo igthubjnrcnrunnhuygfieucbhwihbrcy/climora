@@ -51,7 +51,7 @@ class WeatherObservation(Base):
     ingested_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.datetime.now(datetime.UTC),
+        default=lambda: datetime.datetime.now(datetime.UTC),
     )
 
     __table_args__ = (
@@ -95,7 +95,7 @@ class WeatherForecast(Base):
     ingested_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.datetime.now(datetime.UTC),
+        default=lambda: datetime.datetime.now(datetime.UTC),
     )
 
     __table_args__ = (
@@ -123,7 +123,7 @@ class ModelMetrics(Base):
     recorded_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.datetime.now(datetime.UTC),
+        default=lambda: datetime.datetime.now(datetime.UTC),
     )
 
     __table_args__ = (Index("ix_metrics_model_time", "model_name", "recorded_at"),)
@@ -154,5 +154,5 @@ class AirQualityObservation(Base):
     ingested_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.datetime.now(datetime.UTC),
+        default=lambda: datetime.datetime.now(datetime.UTC),
     )
