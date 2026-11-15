@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="update_title">Update verfügbar</string>
+    <string name="update_default_notes">Eine neue Version von ClimoraWeather ist verfügbar, mit neuen Funktionen und Verbesserungen.</string>
+    <string name="update_action">Jetzt aktualisieren</string>
+    <string name="update_later">Später</string>
+    <string name="update_close_app">Schließen</string>
+    <string name="update_no_url">Kein Download-Link verfügbar</string>
+</resources>

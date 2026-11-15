@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.ClimoraWeather" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="android:statusBarColor">#0B1E3A</item>
+        <item name="android:windowBackground">#0B1E3A</item>
+        <item name="colorPrimary">#38BDF8</item>
+        <item name="colorAccent">#38BDF8</item>
+    </style>
+</resources>

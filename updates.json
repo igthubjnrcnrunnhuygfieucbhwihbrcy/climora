@@ -1,0 +1,11 @@
+{
+  "latestVersion": "1.0.0",
+  "minVersion": "1.0.0",
+  "title": "ClimoraWeather update",
+  "notes": {
+    "nl": "Nieuw in deze versie:\n- 40-daagse weervoorspelling met CAELIA-brein v9\n- AI Captain-leerpipeline met dynamische modelgewichten\n- Radar via RainViewer en luchtkwaliteit\n- NL/EN/DE-taalondersteuning",
+    "en": "New in this version:\n- 40-day forecast with the CAELIA v9 brain\n- AI Captain learning pipeline with dynamic model weights\n- RainViewer radar and air quality\n- NL/EN/DE language support",
+    "de": "Neu in dieser Version:\n- 40-Tage-Vorhersage mit dem CAELIA-v9-Gehirn\n- AI-Captain-Lernpipeline mit dynamischen Modellgewichten\n- RainViewer-Radar und Luftqualität\n- NL/EN/DE-Sprachunterstützung"
+  },
+  "url": "https://github.com/igthubjnrcnrunnhuygfieucbhwihbrcy/climora/releases/latest"
+}

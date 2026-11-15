@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ClimoraWeather</string>
+
+    <string name="update_title">Update beschikbaar</string>
+    <string name="update_default_notes">Er is een nieuwe versie van ClimoraWeather met nieuwe functies en verbeteringen.</string>
+    <string name="update_action">Nu updaten</string>
+    <string name="update_later">Later</string>
+    <string name="update_close_app">Sluiten</string>
+    <string name="update_no_url">Geen downloadlink beschikbaar</string>
+</resources>
