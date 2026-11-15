@@ -17,7 +17,7 @@ data class UpdateInfo(
 ) {
     fun isForceUpdate(currentVersion: String): Boolean {
         if (minVersion.isBlank()) return false
-        return compareVersions(currentVersion, minVersion) < 0
+        return UpdateChecker.compareVersions(currentVersion, minVersion) < 0
     }
 
     fun notesForLocale(context: Context): String {
