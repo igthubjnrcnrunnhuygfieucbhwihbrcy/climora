@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Climora</string>
+
+    <string name="search_hint">Zoek een stad of plaats</string>
+    <string name="search_button">Zoeken</string>
+    <string name="forecast_heading">16-daagse voorspelling</string>
+    <string name="temp_celsius">%d°C</string>
+    <string name="current_details">Gevoel %d°C · Luchtvochtigheid %d%% · Wind %d km/u</string>
+    <string name="day_temps">%d° / %d°</string>
+    <string name="day_precip">💧 %d%%</string>
+
+    <string name="error_generic">Kon het weer niet laden. Controleer je internetverbinding en probeer het opnieuw.</string>
+    <string name="error_location_not_found">Locatie niet gevonden. Probeer een andere zoekopdracht.</string>
+
+    <string name="update_available_title">Update beschikbaar: v%1$s</string>
+    <string name="update_now">Nu updaten</string>
+    <string name="update_later">Later</string>
+    <string name="whats_new_title">Nieuw in Climora</string>
+</resources>

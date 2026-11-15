@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="background">#0B1D33</color>
+    <color name="card_background">#132B47</color>
+    <color name="accent">#4FC3F7</color>
+    <color name="text_primary">#EAF3FC</color>
+    <color name="text_secondary">#9FB6CC</color>
+    <color name="error">#FF8A80</color>
+    <color name="search_field">#1A3556</color>
+    <color name="ic_launcher_background">#0B1D33</color>
+</resources>

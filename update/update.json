@@ -1,0 +1,12 @@
+{
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "changelog": "Eerste release van Climora voor Android.",
+  "features": [
+    "Actueel weer met gevoelstemperatuur, luchtvochtigheid en wind",
+    "16-daagse voorspelling met neerslagkans",
+    "Zoeken en opslaan van je locatie",
+    "Automatische update-melding met nieuwe functies bij elke start"
+  ],
+  "downloadUrl": "https://github.com/igthubjnrcnrunnhuygfieucbhwihbrcy/climora/releases"
+}

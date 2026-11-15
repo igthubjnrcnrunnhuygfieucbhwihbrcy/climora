@@ -1,77 +1,60 @@
-# Climora Atmos Core
+# Climora
 
-**Weather Intelligence Platform** — eigen AI-gestuurde weervoorspellingen met lokale bias-correctie.
+**Android weer-app** — actueel weer, 16-daagse voorspelling en automatische update-meldingen.
 
-## Architectuur
+## Functies
 
-```
-extern weer (Open-Meteo, KNMI, Meteostat)
-       ↓
-  Data Collectors (microservices)
-       ↓
-  PostgreSQL + TimescaleDB
-       ↓
-  AI Model Pipeline
-  ├── Bias Correction (XGBoost/LightGBM)
-  ├── Time-Series Forecast (N-BEATS / TFT / LSTM)
-  └── Confidence Model
-       ↓
-  FastAPI — /api/v1/*
-       ↓
-  Redis Cache
-       ↓
-  Website / App
-```
+- Actueel weer (temperatuur, gevoelstemperatuur, luchtvochtigheid, wind) via Open-Meteo
+- 16-daagse voorspelling met neerslagkans
+- Locatie zoeken en opslaan (Open-Meteo Geocoding)
+- **Update-pop-up bij elke start van de app**: controleert op een nieuwere versie met changelog en nieuwe functies, met knop "Nu updaten". Bij een nieuwe installatie verschijnt een "Nieuw in Climora"-pop-up met de nieuwste functies.
 
-## Componenten
+## APK bouwen
 
-| Laag | Technologie | Doel |
-|------|-------------|------|
-| Data Ingestie | Python collectors | Open-Meteo, KNMI, lokaal station |
-| Opslag | PostgreSQL + TimescaleDB | Historische + live data |
-| Cache | Redis | Snelle API responses |
-| AI Models | XGBoost, LightGBM, PyTorch | Bias correctie, forecasting, confidence |
-| API | FastAPI | Versioned REST endpoints |
-| Infra | Docker Compose | Alles containerized |
+De APK wordt automatisch gebouwd door GitHub Actions (workflow `Android APK`).
+Download het artifact `climora-apk` van de laatste workflow-run; hierin zitten:
 
-## Quick Start
+- `app-debug.apk` — direct installeerbaar
+- `app-release-unsigned.apk` — voor ondertekende releases
+
+Lokaal bouwen kan ook (JDK 17 + Android SDK vereist):
 
 ```bash
-# Clone en start
-git clone https://github.com/your-org/climora.git
-cd climora
-
-# Start alle services
-docker compose up -d
-
-# Of lokaal ontwikkelen
-pip install -e ".[dev]"
-uvicorn src.api.main:app --reload
+gradle assembleDebug
 ```
 
-## API Endpoints
+## Update-mechanisme
+
+Bij elke start controleert de app `update/update.json`:
+
+```json
+{
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "changelog": "...",
+  "features": ["..."],
+  "downloadUrl": "https://github.com/.../releases"
+}
+```
+
+Een update-pop-up verschijnt zodra `versionCode` in het bestand hoger is dan de
+geïnstalleerde `versionCode` (in `app/build.gradle.kts`). Voor een release:
+
+1. Verhoog `versionCode` en `versionName` in `app/build.gradle.kts`.
+2. Werk `update/update.json` bij met het nieuwe `versionCode`, changelog en functies.
+3. Zet de nieuwe APK op de `downloadUrl` (bijv. GitHub Releases).
+
+De URL staat in `UpdateChecker.UPDATE_URL` en kan worden aangepast aan de
+gewenste hosting (raw GitHub, eigen server, enz.).
+
+## Structuur
 
 ```
-GET /api/v1/current        — Huidig weer
-GET /api/v1/hourly         — Uurlijkse voorspelling
-GET /api/v1/daily          — Dagelijkse voorspelling
-GET /api/v1/forecast/40day — 40-dagen voorspelling
-GET /api/v1/radar          — Radardata
-GET /api/v1/airquality     — Luchtkwaliteit
-GET /api/v1/health         — Health check
-```
-
-## Ontwikkeling
-
-```bash
-# Tests
-pytest
-
-# Lint
-ruff check src/ tests/
-
-# Type check
-mypy src/
+app/src/main/java/com/climora/weather/
+├── MainActivity.kt        # Scherm, locatie-opslag, laden van data
+├── UpdateChecker.kt       # Update-pop-up + "Nieuw in Climora" bij elke start
+├── WeatherRepository.kt   # Open-Meteo forecast + geocoding + WMO-codes
+└── DayAdapter.kt          # Lijstweergave van de dagvoorspelling
 ```
 
 ## Licentie
