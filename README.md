@@ -1,59 +1,61 @@
 # ClimoraWeather
 
-**AI-gestuurde weerwebsite, volledig in eigen beheer.** Voorspellingen tot 40 dagen vooruit met multi-model consensus, een gesloten leerlus (AI Captain) en een eigen lange-termijnlaag (CAELIA). Geen accounts, geen API-sleutels, geen build-stap.
+**AI-gestuurde weerwebsite, volledig in eigen beheer.** Voorspelling tot 40 dagen vooruit: multi-model consensus (dag 1–16), CAELIA-regime-outlook (dag 17–40) en de AI Captain-leerlus. Geen accounts, geen API-sleutels, geen build-stap.
 
-## Kenmerken
+## Installeren
 
-| Laag | Wat het doet |
-|------|--------------|
-| Multi-model forecast | ECMWF IFS, DWD ICON, NOAA GFS en MET Norway, gewogen gecombineerd (dag 1–16) |
-| Onzekerheidsband | Modelspreiding als P10–P90-band per dag |
-| CAELIA | Dag 17–40 uit klimaatprofiel (30 jaar archief), analoge dagen en regime-analyse — als bandbreedte, nooit schijnprecisie |
-| AI Captain | Verifieert oude voorspellingen tegen waarnemingen, meet bias per model/variabele/lead-time, leert dynamische gewichten (70% geleerd + 30% standaard) |
-| Live regenradar | RainViewer-tegels op Leaflet/OpenStreetMap |
-| Luchtkwaliteit | AQI, PM2.5, PM10, ozon, NO₂ |
-| Waarschuwingen | MeteoAlarm-feeds voor 28 landen |
-| i18n | Nederlands, Engels, Duits; eenheden per land (°C/°F, km/u vs mph) |
-| Publiek/Pro | Pro toont modelgewichten, CaptainMemory-inzichten en CAELIA-details |
+### Optie 1 — GitHub Pages (aanbevolen, gratis)
 
-## Zelf draaien
+1. Zet de repository online via **[Settings → Pages](https://docs.github.com/nl/pages/getting-started-with-github-pages)** → *Deploy from a branch* → kies je branch en `/ (root)` → **Save**.
+2. Na ~1 minuut staat de site op `https://<jouw-gebruikersnaam>.github.io/climora/`.
+3. Klaar. Elke push naar die branch werkt de site automatisch bij.
 
-Geen build-stap nodig — statische bestanden:
+### Optie 2 — Eigen server / Raspberry Pi
 
 ```bash
-# optie 1: elke statische webserver
+git clone https://github.com/igthubjnrcnrunnhuygfieucbhwihbrcy/climora.git
+cd climora
 python3 -m http.server 8080
-
-# optie 2: direct openen
-open index.html
 ```
 
-Of host het op GitHub Pages: *Settings → Pages → deploy from branch*.
+Open daarna **http://localhost:8080**. Werkt met elke statische webserver:
 
-## Gebruikte API's (alle sleutelloos)
+- **[Nginx](https://nginx.org/en/docs/beginners_guide.html#static)** — zet de map als `root` in je `server`-blok
+- **[Caddy](https://caddyserver.com/docs/)** — `climora.jouwdomein.nl { root * /pad/naar/climora; file_server }` (HTTPS automatisch)
+- **[Docker](https://docs.docker.com/get-started/)** — `docker run -d -p 8080:80 -v "$PWD":/usr/share/nginx/html nginx`
 
-- Open-Meteo — forecast (4 modellen), uurdata, archief (30 jaar), luchtkwaliteit, geocoding
-- MET Norway — onafhankelijke tweede bron (locationforecast 2.0)
-- RainViewer — radartegels
-- MeteoAlarm — waarschuwingen (via openbare CORS-proxy)
-- BigDataCloud / geojs.io — reverse geocoding en IP-locatie
+### Optie 3 — Direct openen
 
-## Architectuur
+Dubbelklik op `index.html` — de site werkt ook zonder server (alle API's draaien via HTTPS).
+
+## Gebruik
+
+- **Locatie kiezen:** typ in het zoekveld, of laat de browser je locatie bepalen (opgeslagen in je browser).
+- **Taal:** NL / EN / DE via het keuzemenu rechtsboven.
+- **Pro-modus:** knop rechtsboven — toont geleerde modelgewichten, bias-inzichten en CAELIA-details.
+- **Leren:** de AI Captain slaat elke voorspelling op, verifieert die tegen waarnemingen en past de modelgewichten aan. Alles blijft lokaal in je browser ([privacyverklaring](privacy.html)).
+
+## Hoe het werkt
 
 ```
-index.html + css/ + js/
-├── i18n.js     talen + eenheden per land
-├── icons.js    SVG-weericonen (LiveSkyIcon-stijl)
-├── api.js      alle externe bronnen
-├── captain.js  AI Captain: ModelTrack → verificatie → bias → gewichten
-├── caelia.js   klimaatprofiel + analoge dagen + regimes → dag 17–40
-├── chart.js    canvas-grafieken (band, uurlijn)
-├── radar.js    Leaflet + RainViewer
-└── main.js     orchestratie en weergave
+Open-Meteo (4 modellen) + MET Norway ──► gewogen combinatie ──► dag 1–16 + band
+        │                                                    │
+        ▼                                                    ▼
+  30-jaar archief ──► CAELIA (klimaat + analoge dagen + regimes) ──► dag 17–40
+        │
+        ▼
+  AI Captain: voorspellingen verifiëren ──► bias meten ──► gewichten bijstellen
 ```
 
-Leermetingen en voorkeuren staan in `localStorage` (`climora_modeltrack`, `climora_captainmemory`, `climora_selected_location`, …) en verlaten het toestel niet — zie [privacyverklaring](privacy.html).
+| Module | Functie |
+|---|---|
+| [js/api.js](js/api.js) | Alle bronnen: [Open-Meteo](https://open-meteo.com/), [MET Norway](https://api.met.no/), [RainViewer](https://www.rainviewer.com/), [MeteoAlarm](https://meteoalarm.org/) |
+| [js/captain.js](js/captain.js) | AI Captain — leerlus in localStorage |
+| [js/caelia.js](js/caelia.js) | CAELIA — dag 17–40 |
+| [js/main.js](js/main.js) | Orchestratie en weergave |
 
-## Licentie
+## Problemen oplossen
 
-Eigen beheer — alle code in deze repository is van de eigenaar.
+- **Geen data?** Controleer of je internet werkt; de bronnen zijn gratis maar publiek.
+- **Radar leeg?** De [Leaflet](https://leafletjs.com/)-bibliotheek komt van een CDN — bij offline gebruik eerst de bestanden lokaal plaatsen.
+- **Leerlus resetten?** Wis in je browser de sitegegevens voor deze pagina.
