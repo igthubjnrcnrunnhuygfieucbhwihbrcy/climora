@@ -39,9 +39,16 @@
     const x = i => padL + (i / (points.length - 1)) * iw;
     const y = v => padT + (1 - (v - lo) / (hi - lo)) * ih;
 
+    const light = !!o.light;
+    const cGrid = light ? "#e2e8f0" : "rgba(143,163,191,0.15)";
+    const cLabel = light ? "#64748b" : "#8fa3bf";
+    const cBand = light ? "rgba(37,99,235,0.10)" : "rgba(14,165,233,0.14)";
+    const cMax = light ? "#2563eb" : "#f97316";
+    const cMin = light ? "#60a5fa" : "#38bdf8";
+
     /* gridlijnen */
-    ctx.strokeStyle = "rgba(143,163,191,0.15)";
-    ctx.fillStyle = "#8fa3bf";
+    ctx.strokeStyle = cGrid;
+    ctx.fillStyle = cLabel;
     ctx.font = "10px system-ui";
     ctx.lineWidth = 1;
     const steps = 4;
@@ -66,7 +73,7 @@
         ctx.lineTo(x(i), y(v));
       }
       ctx.closePath();
-      ctx.fillStyle = "rgba(14,165,233,0.14)";
+      ctx.fillStyle = cBand;
       ctx.fill();
     }
 
@@ -83,11 +90,24 @@
       ctx.lineWidth = 2;
       ctx.stroke();
     };
-    line("tmax", "#f97316");
-    line("tmin", "#38bdf8");
+    /* Enkele reeks (24-uursweergave): vulling onder de lijn */
+    const single = points.every(p => p.tmin == null);
+    if (single) {
+      ctx.beginPath();
+      ctx.moveTo(x(0), y(points[0].tmax != null ? points[0].tmax : lo));
+      for (let i = 1; i < points.length; i++) ctx.lineTo(x(i), y(points[i].tmax != null ? points[i].tmax : lo));
+      ctx.lineTo(x(points.length - 1), padT + ih);
+      ctx.lineTo(x(0), padT + ih);
+      ctx.closePath();
+      ctx.fillStyle = light ? "rgba(37,99,235,0.08)" : "rgba(249,115,22,0.10)";
+      ctx.fill();
+    }
+
+    line("tmax", cMax);
+    line("tmin", cMin);
 
     /* x-labels */
-    ctx.fillStyle = "#8fa3bf";
+    ctx.fillStyle = cLabel;
     const step = Math.ceil(points.length / 8);
     for (let i = 0; i < points.length; i += step) {
       const lbl = points[i].label || "";
@@ -130,12 +150,12 @@
       const px = x(i), py = yT(hours[i].temp);
       i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
     }
-    ctx.strokeStyle = "#f97316";
+    ctx.strokeStyle = o.light ? "#2563eb" : "#f97316";
     ctx.lineWidth = 2;
     ctx.stroke();
 
     /* labels */
-    ctx.fillStyle = "#8fa3bf";
+    ctx.fillStyle = o.light ? "#64748b" : "#8fa3bf";
     ctx.font = "10px system-ui";
     const step = Math.ceil(hours.length / 8);
     for (let i = 0; i < hours.length; i += step) {

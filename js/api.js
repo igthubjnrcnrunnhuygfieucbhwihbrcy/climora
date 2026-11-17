@@ -64,7 +64,7 @@
     { id: "metno_seamless", name: "MET Norway", weight: 0.20 },
   ];
 
-  const DAILY_VARS = "weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_direction_10m_dominant,pressure_msl";
+  const DAILY_VARS = "weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_direction_10m_dominant,pressure_msl,sunrise,sunset";
 
   async function fetchOmModel(lat, lon, modelId) {
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
@@ -132,10 +132,39 @@
     return { modelId: "metno_api", name: "MET Norway", daily };
   }
 
+  /* ── 15-minuten-nowcast (voor RainNowcast) ─────────── */
+  async function fetchMinutely15(lat, lon) {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+      `&minutely_15=temperature_2m,apparent_temperature,weather_code,precipitation,precipitation_probability,wind_speed_10m` +
+      `&timezone=auto&forecast_days=3`;
+    const data = await jfetch(url);
+    const m = data.minutely_15 || {};
+    const out = [];
+    const now = new Date();
+    for (let i = 0; i < (m.time || []).length; i++) {
+      const ts = new Date(m.time[i]).getTime();
+      if (ts < now.getTime() - 900000) continue;
+      const [h, min] = m.time[i].slice(11, 16).split(":").map(Number);
+      out.push({
+        date: m.time[i].slice(0, 10),
+        timeLabel: m.time[i].slice(11, 16),
+        minutes: h * 60 + min,
+        temp: m.temperature_2m ? m.temperature_2m[i] : null,
+        feelsLike: m.apparent_temperature ? m.apparent_temperature[i] : null,
+        code: m.weather_code ? m.weather_code[i] : 3,
+        precip: m.precipitation ? m.precipitation[i] : 0,
+        precipProb: m.precipitation_probability ? m.precipitation_probability[i] : 0,
+        wind: m.wind_speed_10m ? m.wind_speed_10m[i] : 0,
+      });
+      if (out.length >= 48) break;
+    }
+    return out;
+  }
+
   /* ── Uurdata (48 uur) ──────────────────────────────── */
   async function fetchHourly(lat, lon) {
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
-      `&hourly=temperature_2m,precipitation_probability,precipitation,weather_code,wind_speed_10m` +
+      `&hourly=temperature_2m,apparent_temperature,precipitation_probability,precipitation,weather_code,wind_speed_10m,wind_gusts_10m` +
       `&timezone=auto&forecast_days=3&models=best_match`;
     const data = await jfetch(url);
     const h = data.hourly || {};
@@ -144,13 +173,18 @@
     for (let i = 0; i < (h.time || []).length; i++) {
       const ts = new Date(h.time[i]).getTime();
       if (ts < now - 3600000) continue;
+      const [hh, mm] = h.time[i].slice(11, 16).split(":").map(Number);
       out.push({
         time: h.time[i],
+        timeLabel: h.time[i].slice(11, 16),
+        minutes: hh * 60 + mm,
         temp: h.temperature_2m[i],
+        feelsLike: h.apparent_temperature ? h.apparent_temperature[i] : null,
         precipProb: h.precipitation_probability ? h.precipitation_probability[i] : null,
         precip: h.precipitation[i],
         code: h.weather_code[i],
         wind: h.wind_speed_10m[i],
+        gusts: h.wind_gusts_10m ? h.wind_gusts_10m[i] : null,
       });
       if (out.length >= 48) break;
     }
@@ -160,7 +194,7 @@
   /* ── Luchtkwaliteit ────────────────────────────────── */
   async function fetchAirQuality(lat, lon) {
     const url = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}` +
-      `&current=european_aqi,pm2_5,pm10,ozone,nitrogen_dioxide,alder_pollen,birch_pollen,grass_pollen&timezone=auto`;
+      `&current=european_aqi,pm2_5,pm10,ozone,nitrogen_dioxide,uv_index,alder_pollen,birch_pollen,grass_pollen&timezone=auto`;
     const data = await jfetch(url);
     return data.current || null;
   }
@@ -203,11 +237,14 @@
           const el = e.getElementsByTagName(tag)[0];
           return el ? el.textContent.trim() : "";
         };
+        const raw = (get("cap:severity") || get("severity") || "moderate").toLowerCase();
+        const level = raw.includes("extreme") ? "rood" : raw.includes("severe") ? "oranje" : "geel";
         out.push({
-          level: get("cap:severity") || get("severity") || "",
-          event: get("cap:event") || get("event") || get("title") || "Waarschuwing",
+          level,
+          title: get("cap:event") || get("event") || get("title") || "Waarschuwing",
           area: get("cap:areaDesc") || get("areaDesc") || "",
-          effective: get("cap:effective") || get("effective") || "",
+          summary: get("cap:description") || get("description") || "",
+          source: "MeteoAlarm",
         });
       }
       return out;
@@ -226,7 +263,7 @@
 
   window.ClimoraAPI = {
     jfetch, geocodeSearch, reverseGeocode, ipLocate, gpsLocate,
-    OM_MODELS, fetchOmModel, fetchMetNo, fetchHourly, fetchAirQuality,
+    OM_MODELS, fetchOmModel, fetchMetNo, fetchHourly, fetchMinutely15, fetchAirQuality,
     fetchArchive, fetchPastActuals, fetchWarnings, fetchRadarFrames,
   };
 })();

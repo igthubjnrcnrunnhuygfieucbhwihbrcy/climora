@@ -1,6 +1,6 @@
-/* ClimoraWeather — orchestratie: locatie, data, AI-lagen en weergave.
+/* ClimoraWeather — orchestratie: pagina's, data, AI-lagen en weergave.
  * Opstartvolgorde: opgeslagen locatie → GPS → IP-fallback; AI Captain-leerpipeline;
- * multi-model data; CAELIA voor dag 17–40; render publiek/pro. */
+ * multi-model data; CAELIA voor dag 17–40; weergave per pagina. */
 (function () {
   "use strict";
 
@@ -11,26 +11,32 @@
   const Caelia = () => window.ClimoraCaelia;
 
   const state = {
+    page: "home",
     location: null,
-    mode: localStorage.getItem("climora_mode") || "publiek",
-    daily: [],      /* dag 1–16 gewogen + gecorrigeerd */
-    extended: [],   /* dag 17–40 (CAELIA) */
+    daily: [],
+    extended: [],
+    min15: [],
     hourly: [],
+    air: null,
+    warnings: [],
     units: null,
     caeliaInfo: null,
+    showLongRange: false,
   };
 
   /* ── Helpers ───────────────────────────────────────── */
-  function fmtDate(dateStr, fmt) {
-    return new Date(dateStr + "T12:00:00").toLocaleDateString(I18N().locale(), fmt || { weekday: "short", day: "numeric", month: "short" });
+  function fmtDate(dateStr, opts) {
+    return new Date(dateStr + "T12:00:00").toLocaleDateString(I18N().locale(), opts || { weekday: "short", day: "numeric", month: "short" });
   }
   function dayName(dateStr, idx) {
     if (idx === 0) return I18N().t("today");
     if (idx === 1) return I18N().t("tomorrow");
-    return fmtDate(dateStr, { weekday: "short" });
+    return fmtDate(dateStr, { weekday: "short", day: "numeric", month: "short" });
   }
   function show(id, on) { $(id).classList.toggle("hidden", !on); }
-
+  function escapeHtml(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
   function pct(arr, p) {
     const v = arr.filter(x => x != null).sort((a, b) => a - b);
     if (!v.length) return null;
@@ -38,18 +44,54 @@
     const lo = Math.floor(idx), hi = Math.ceil(idx);
     return v[lo] + (v[hi] - v[lo]) * (idx - lo);
   }
+  function wmean(pairs) {
+    const tw = pairs.reduce((s, p) => s + p[1], 0);
+    return tw ? pairs.reduce((s, p) => s + p[0] * p[1], 0) / tw : null;
+  }
+  function beaufort(ms) {
+    if (ms == null) return null;
+    return Math.max(0, Math.min(12, Math.round(Math.pow(ms / 0.836, 2 / 3))));
+  }
+  function uvInfo(uv) {
+    if (uv == null) return null;
+    if (uv < 3) return { label: I18N().t("uv_low"), cls: "good", advice: I18N().t("uv_advice_low") };
+    if (uv < 6) return { label: I18N().t("uv_moderate"), cls: "", advice: I18N().t("uv_advice_mid") };
+    if (uv < 8) return { label: I18N().t("uv_high"), cls: "warn", advice: I18N().t("uv_advice_high") };
+    if (uv < 11) return { label: I18N().t("uv_vhigh"), cls: "bad", advice: I18N().t("uv_advice_high") };
+    return { label: I18N().t("uv_extreme"), cls: "bad", advice: I18N().t("uv_advice_high") };
+  }
+  function aqiInfo(aqi) {
+    if (aqi == null) return null;
+    if (aqi <= 20) return { label: I18N().t("aqiGood") || I18N().t("aqi_good"), cls: "good" };
+    if (aqi <= 40) return { label: I18N().t("aqiFair"), cls: "good" };
+    if (aqi <= 60) return { label: I18N().t("aqiModerate"), cls: "" };
+    if (aqi <= 80) return { label: I18N().t("aqiPoor"), cls: "warn" };
+    return { label: I18N().t("aqiVeryPoor"), cls: "bad" };
+  }
+  function outdoorScore(day) {
+    if (!day) return null;
+    let score = 10;
+    if (day.tmax != null) {
+      if (day.tmax > 30) score -= (day.tmax - 30) * 0.5;
+      if (day.tmax < 5) score -= (5 - day.tmax) * 0.4;
+    }
+    if (day.wind != null) score -= Math.max(0, day.wind * 3.6 - 25) * 0.06;
+    if (day.precip != null) score -= Math.min(4, day.precip * 0.7);
+    if (day.precipProb != null) score -= (day.precipProb / 100) * 2;
+    return Math.max(0, Math.min(10, score));
+  }
 
   /* ── Locatie ───────────────────────────────────────── */
   function saveLocation(loc) {
     state.location = loc;
-    localStorage.setItem("climora_selected_location", JSON.stringify(loc));
+    try { localStorage.setItem("climora_selected_location", JSON.stringify(loc)); } catch { /* quota */ }
   }
 
   async function resolveLocation() {
-    const saved = localStorage.getItem("climora_selected_location");
-    if (saved) {
-      try { return JSON.parse(saved); } catch { /* corrupte opslag: verder met detectie */ }
-    }
+    try {
+      const saved = JSON.parse(localStorage.getItem("climora_selected_location"));
+      if (saved && saved.name && saved.lat != null) return saved;
+    } catch { /* corrupte opslag */ }
     try {
       const gps = await API().gpsLocate();
       const rev = await API().reverseGeocode(gps.lat, gps.lon);
@@ -59,26 +101,29 @@
     }
   }
 
-  /* ── Data ophalen en combineren ────────────────────── */
+  /* ── Laden + combineren ────────────────────────────── */
+  function setLoadingStep(key) { $("loading-text").textContent = I18N().t(key); }
+
   async function loadWeather() {
     const loc = state.location;
     if (!loc) return;
-    const u = I18N().unitsForCountry(loc.countryCode);
-    state.units = u;
-
-    $("loading-text").textContent = I18N().t("loading");
-    show("loading", true);
+    state.units = I18N().unitsForCountry(loc.countryCode);
     show("error-banner", false);
 
     const locKey = `${loc.lat.toFixed(2)},${loc.lon.toFixed(2)}`;
 
-    const [modelsRes, metNoRes, hourlyRes, airRes, warningsRes, archiveRes] = await Promise.allSettled([
+    setLoadingStep("load_captain");
+    try { await Captain().verifyAndLearn(locKey, loc.lat, loc.lon); } catch { /* leren mag nooit breken */ }
+    const { weights, learned } = Captain().computeWeights();
+
+    setLoadingStep("load_sources");
+    const [modelsRes, metNoRes, min15Res, hourlyRes, airRes, warningsRes] = await Promise.allSettled([
       Promise.all(API().OM_MODELS.map(m => API().fetchOmModel(loc.lat, loc.lon, m.id))),
       API().fetchMetNo(loc.lat, loc.lon),
+      API().fetchMinutely15(loc.lat, loc.lon),
       API().fetchHourly(loc.lat, loc.lon),
       API().fetchAirQuality(loc.lat, loc.lon),
       API().fetchWarnings(loc.countryCode),
-      API().fetchArchive(loc.lat, loc.lon),
     ]);
 
     const models = [];
@@ -92,300 +137,450 @@
     if (metNoRes.status === "fulfilled" && metNoRes.value) models.push(metNoRes.value);
 
     if (!models.length) {
-      show("loading", false);
-      $("error-banner").textContent = I18N().t("errorLoad");
+      $("error-banner").textContent = I18N().t("error_prefix") + ": " + I18N().t("no_connection");
       show("error-banner", true);
       return;
     }
 
-    /* AI Captain: eerst verifiëren, dan gewichten leren */
-    $("loading-text").textContent = I18N().t("loadingCaptain");
-    try { await Captain().verifyAndLearn(locKey, loc.lat, loc.lon); } catch { /* lokaal leren mag never breken */ }
-    const { weights, learned } = Captain().computeWeights();
-
-    /* Multi-model gewogen combinatie met bias-correctie */
+    setLoadingStep("load_models");
     const base = models[0].daily;
     const nDays = Math.min(16, base.time.length);
     const daily = [];
     for (let i = 0; i < nDays; i++) {
       const date = base.time[i];
       const lead = i + 1;
-      const perVar = { tmax: [], tmin: [], precip: [], tmaxP10: [], tmaxP90: [], pressure: [] };
+      const perVar = { tmax: [], tmin: [], precip: [], tmaxAll: [], pressure: [] };
       for (const m of models) {
         const d = m.daily;
         if (!d || !d.time || d.time[i] !== date) continue;
         const w = weights[m.modelId] || 0.05;
-        if (d.temperature_2m_max[i] != null) perVar.tmax.push([d.temperature_2m_max[i] - Captain().getBias(m.modelId, lead, "tmax"), w]);
+        if (d.temperature_2m_max[i] != null) {
+          perVar.tmax.push([d.temperature_2m_max[i] - Captain().getBias(m.modelId, lead, "tmax"), w]);
+          perVar.tmaxAll.push(d.temperature_2m_max[i]);
+        }
         if (d.temperature_2m_min[i] != null) perVar.tmin.push([d.temperature_2m_min[i] - Captain().getBias(m.modelId, lead, "tmin"), w]);
         if (d.precipitation_sum[i] != null) perVar.precip.push([Math.max(0, d.precipitation_sum[i] - Captain().getBias(m.modelId, lead, "precip")), w]);
-        if (d.temperature_2m_max[i] != null) { perVar.tmaxP10.push(d.temperature_2m_max[i]); perVar.tmaxP90.push(d.temperature_2m_max[i]); }
         if (d.pressure_msl && d.pressure_msl[i] != null) perVar.pressure.push(d.pressure_msl[i]);
       }
-      const wmean = pairs => {
-        const tw = pairs.reduce((s, p) => s + p[1], 0);
-        return tw ? pairs.reduce((s, p) => s + p[0] * p[1], 0) / tw : null;
-      };
       const tmax = wmean(perVar.tmax);
-      const tmin = wmean(perVar.tmin);
-      const spread = pct(perVar.tmaxP10, 0.1);
-      const spreadHi = pct(perVar.tmaxP90, 0.9);
+      const spreadLo = pct(perVar.tmaxAll, 0.1);
+      const spreadHi = pct(perVar.tmaxAll, 0.9);
       daily.push({
         date,
-        tmax, tmin,
-        tmaxP10: spread != null && tmax != null ? Math.round((tmax - Math.max(0.4, (spreadHi - spread) / 2)) * 10) / 10 : null,
-        tmaxP90: spreadHi != null && tmax != null ? Math.round((tmax + Math.max(0.4, (spreadHi - spread) / 2)) * 10) / 10 : null,
+        tmax, tmin: wmean(perVar.tmin),
+        tmaxP10: tmax != null && spreadLo != null ? Math.round(Math.min(tmax, spreadLo) * 10) / 10 : null,
+        tmaxP90: tmax != null && spreadHi != null ? Math.round(Math.max(tmax, spreadHi) * 10) / 10 : null,
         precip: wmean(perVar.precip),
         precipProb: pct(models.map(m => m.daily && m.daily.precipitation_probability_max ? m.daily.precipitation_probability_max[i] : null), 0.5),
         wind: wmean(models.map(m => m.daily && m.daily.wind_speed_10m_max ? [m.daily.wind_speed_10m_max[i], weights[m.modelId] || 0.05] : null).filter(Boolean)),
         windDir: pct(models.map(m => m.daily && m.daily.wind_direction_10m_dominant ? m.daily.wind_direction_10m_dominant[i] : null), 0.5),
         code: (() => { const c = pct(models.map(m => m.daily && m.daily.weather_code ? m.daily.weather_code[i] : null), 0.5); return c == null ? 3 : Math.round(c); })(),
         pressure: wmean(perVar.pressure.map(p => [p, 1])),
+        sunrise: base.sunrise ? base.sunrise[i] : null,
+        sunset: base.sunset ? base.sunset[i] : null,
         source: "models",
       });
     }
     state.daily = daily;
 
-    /* CAELIA: dag 17–40 */
-    $("loading-text").textContent = I18N().t("loadingCaelia");
-    const archive = archiveRes.status === "fulfilled" ? archiveRes.value : null;
-    const profile = Caelia().buildClimateProfile(archive);
-    const ext = Caelia().extendTo40(daily, profile, archive, Captain().hasLearning());
-    state.extended = ext.days;
-    state.caeliaInfo = { analogYears: ext.analogYears, regimes: ext.regimes, hasProfile: !!profile };
+    setLoadingStep("load_longterm");
+    try {
+      const archive = await API().fetchArchive(loc.lat, loc.lon);
+      const profile = Caelia().buildClimateProfile(archive);
+      const ext = Caelia().extendTo40(daily, profile, archive, Captain().hasLearning());
+      state.extended = ext.days;
+      state.caeliaInfo = { analogYears: ext.analogYears, regimes: ext.regimes, hasProfile: !!profile };
+    } catch {
+      state.extended = [];
+      state.caeliaInfo = null;
+    }
 
-    /* Leermetingen vastleggen voor de volgende cyclus */
     try { Captain().recordPredictions(locKey, models); } catch { /* negeer */ }
 
-    /* Overige bronnen */
+    state.min15 = min15Res.status === "fulfilled" ? min15Res.value : [];
     state.hourly = hourlyRes.status === "fulfilled" ? hourlyRes.value : [];
-    const air = airRes.status === "fulfilled" ? airRes.value : null;
-    const warnings = warningsRes.status === "fulfilled" ? warningsRes.value : [];
+    state.air = airRes.status === "fulfilled" ? airRes.value : null;
+    state.warnings = warningsRes.status === "fulfilled" ? warningsRes.value : [];
 
+    renderAll(learned);
+  }
+
+  /* ── Render: alles ─────────────────────────────────── */
+  function renderAll(learned) {
+    const loc = state.location;
+    $("location-name").textContent = loc.name + (loc.countryCode ? " " + loc.countryCode.toUpperCase() : "");
+    document.title = `ClimoraWeather — ${loc.name}`;
+
+    renderWarnings();
+    renderHome();
+    renderDays40();
+    renderMaker(learned);
+    renderStaticTexts();
+    show("app-root", true);
     show("loading", false);
-    renderAll(loc, air, warnings, learned);
   }
 
-  /* ── Weergave ──────────────────────────────────────── */
-  function renderAll(loc, air, warnings, learned) {
-    const u = state.units;
-    $("location-name").textContent = loc.name + (loc.country ? `, ${loc.country}` : "");
-    $("location-meta").textContent = `${loc.lat.toFixed(3)}, ${loc.lon.toFixed(3)}`;
-    show("location-bar", true);
-
-    renderWarnings(warnings);
-    renderHero();
-    renderOutdoor();
-    renderHourly();
-    renderDaily();
-    renderRegimes();
-    renderAir(air);
-    renderPro(learned);
-
-    show("hero", true); show("outdoor-card", true); show("hourly-card", true);
-    show("daily-card", true); show("regime-card", true); show("radar-card", true); show("air-card", true);
-    document.querySelectorAll(".pro-only").forEach(el => el.classList.toggle("hidden", state.mode !== "pro"));
-
-    window.ClimoraRadar.init(loc.lat, loc.lon);
-  }
-
-  function renderWarnings(warnings) {
+  function renderWarnings() {
     const el = $("warnings-banner");
-    if (!warnings || !warnings.length) { show("warnings-banner", false); return; }
-    el.innerHTML = warnings.map(w =>
-      `<div class="warn-item"><span class="warn-level">⚠️</span><strong>${escapeHtml(w.event)}</strong>` +
-      (w.area ? ` — ${escapeHtml(w.area)}` : "") + `</div>`
-    ).join("");
+    const w = state.warnings;
+    if (!w || !w.length) { show("warnings-banner", false); return; }
+    const worst = w.some(x => x.level === "rood") ? "code-rood" : w.some(x => x.level === "oranje") ? "code-oranje" : "";
+    el.classList.toggle("code-rood", worst === "code-rood");
+    el.classList.toggle("code-oranje", worst === "code-oranje");
+    const label = lvl => lvl === "rood" ? I18N().t("warn_red") : lvl === "oranje" ? I18N().t("warn_orange") : I18N().t("warn_yellow");
+    el.innerHTML = w.slice(0, 3).map(x =>
+      `<div class="warn-item"><span class="warn-level">${escapeHtml(label(x.level))}</span><strong>${escapeHtml(x.title)}</strong>` +
+      (x.area ? ` — ${escapeHtml(x.area)}` : "") + `</div>`
+    ).join("") + (w.length > 3 ? `<div class="warn-item muted small">${escapeHtml(I18N().t("more_warnings", { n: w.length - 3 }))}</div>` : "");
     show("warnings-banner", true);
   }
 
-  function renderHero() {
+  /* ── Pagina: Home ──────────────────────────────────── */
+  function renderHome() {
     const u = state.units;
-    const h = state.hourly[0];
+    const loc = state.location;
     const d0 = state.daily[0];
-    const code = h ? h.code : (d0 ? d0.code : 3);
-    const hour = new Date().getHours();
-    const isDay = hour >= 6 && hour < 21;
-    $("hero-icon").innerHTML = window.ClimoraIcons.svg(code, isDay);
-    $("hero-desc").textContent = I18N().weatherLabel(code);
-    $("hero-temp").textContent = h && h.temp != null ? `${Math.round(u.convertTemp(h.temp))}${u.temp}` : (d0 && d0.tmax != null ? `${Math.round(u.convertTemp(d0.tmax))}${u.temp}` : "—");
-    $("hero-feels").textContent = d0 && d0.tmin != null && d0.tmax != null
-      ? `${I18N().t("feelsLike")} ${Math.round(u.convertTemp((d0.tmax + d0.tmin) / 2))}${u.temp} · min ${Math.round(u.convertTemp(d0.tmin))}${u.temp}` : "";
+    if (!d0) return;
 
-    const stats = [];
-    if (h && h.wind != null) stats.push({ label: I18N().t("wind"), value: `${Math.round(u.convertWind(h.wind))} ${u.wind}` });
-    if (d0 && d0.precip != null) stats.push({ label: I18N().t("precip"), value: `${u.convertPrecip(d0.precip).toFixed(u.dec)} ${u.precip}` });
-    if (d0 && d0.precipProb != null) stats.push({ label: "%", value: `${Math.round(d0.precipProb)}%` });
-    if (d0 && d0.pressure != null) stats.push({ label: I18N().t("pressure"), value: `${Math.round(d0.pressure)} hPa` });
-    $("hero-stats").innerHTML = stats.map(s => `<div class="hero-stat"><div class="label">${s.label}</div><div class="value">${s.value}</div></div>`).join("");
+    /* Huidige temp: voorkeur 15-min-nowcast, anders uurdata */
+    const current = state.min15[0] || state.hourly[0] || null;
+
+    /* Hero-oordeel */
+    const score = outdoorScore(d0);
+    const verdictKey = score >= 7 ? "hero_good" : score >= 4 ? "hero_moderate" : "hero_bad";
+    const verdict = $("hero-verdict");
+    verdict.textContent = I18N().t(verdictKey, { loc: loc.name });
+    verdict.className = "hero-verdict" + (score < 7 ? (score >= 4 ? " moderate" : " bad") : "");
+
+    $("hero-temp").textContent = current && current.temp != null ? `${u.temp(current.temp)}${u.tempUnit}` : `${u.temp(d0.tmax)}${u.tempUnit}`;
+    const feelsNow = current && current.feelsLike != null ? current.feelsLike : d0.tmax != null && d0.tmin != null ? (d0.tmax + d0.tmin) / 2 : null;
+    $("hero-feels").textContent = feelsNow != null ? I18N().t("feels_temp", { v: `${u.temp(feelsNow)}${u.tempUnit}` }) : "";
+    $("hero-desc").textContent = I18N().weatherLabel(current ? current.code : d0.code);
+
+    /* Droog-tot-berekening uit 15-min-nowcast */
+    const dryInfo = computeDryUntil();
+    const details = [];
+    if (d0.tmax != null) details.push(`<li><strong>${escapeHtml(I18N().t("max_today", { v: `${u.temp(d0.tmax)}${u.tempUnit}` }))}</strong></li>`);
+    if (d0.tmin != null) details.push(`<li><strong>${escapeHtml(I18N().t("min_tonight", { v: `${u.temp(d0.tmin)}${u.tempUnit}` }))}</strong></li>`);
+    if (d0.pressure != null) details.push(`<li>${escapeHtml(I18N().t("pressure_label", { v: Math.round(d0.pressure) }))}</li>`);
+    if (dryInfo) details.push(`<li>${escapeHtml(dryInfo)}</li>`);
+    $("hero-details").innerHTML = details.join("");
+
+    /* Mini-radar + samenvatting */
+    $("radar-mini-title").textContent = I18N().t("radar_title", { loc: loc.name });
+    const next3 = state.min15.slice(0, 12);
+    const rainingNow = next3.length && (next3[0].precip || 0) > 0.05;
+    $("radar-summary").textContent = rainingNow
+      ? I18N().t("rain_header", { hours: 2 }).replace(/^Regen nu en straks.*$/, I18N().t("rain_continues", { int: I18N().t("rain_normal"), hours: 2 }))
+      : I18N().t("no_rain_active");
+    const nextRain = next3.findIndex((s, i) => i > 0 && (s.precip || 0) > 0.05);
+    $("radar-next").textContent = nextRain === -1 && !rainingNow
+      ? I18N().t("next_rain", { pct: d0.precipProb != null ? Math.round(d0.precipProb) : 0, h: 3 })
+      : nextRain > 0 ? I18N().t("rain_later", { time: next3[nextRain].timeLabel, int: I18N().t("rain_normal") }).replace(/^Rond/, I18N().t("next_rain", { pct: "", h: 3 }).split(":")[0] + ":") : "";
+
+    /* Mini-radar in de hero-kaart */
+    window.ClimoraRadar.init(loc.lat, loc.lon, "radar-mini", 8);
+
+    /* Snel overzicht */
+    renderOverview(d0, current);
+
+    /* 24 uur */
+    renderHours24();
   }
 
-  function outdoorScore(day) {
-    if (!day) return null;
-    let score = 10;
-    if (day.tmax != null) {
-      if (day.tmax > 30) score -= (day.tmax - 30) * 0.5;
-      if (day.tmax < 5) score -= (5 - day.tmax) * 0.4;
+  function computeDryUntil() {
+    const slots = state.min15.length ? state.min15 : state.hourly;
+    if (!slots.length) return null;
+    for (const s of slots) {
+      if ((s.precip || 0) > 0.1) return I18N().t("rain_from", { time: s.timeLabel });
     }
-    if (day.wind != null) score -= Math.max(0, (day.wind * 3.6 - 25)) * 0.06;
-    if (day.precip != null) score -= Math.min(4, day.precip * 0.7);
-    if (day.precipProb != null) score -= (day.precipProb / 100) * 2;
-    return Math.max(0, Math.min(10, Math.round(score * 10) / 10));
+    const last = slots[Math.min(slots.length - 1, 11)];
+    return I18N().t("dry_until", { time: last.timeLabel });
   }
 
-  function renderOutdoor() {
-    const today = outdoorScore(state.daily[0]);
-    if (today == null) return;
-    $("outdoor-score").textContent = today.toFixed(1);
-    const color = today >= 7 ? "var(--good)" : today >= 4 ? "var(--warn)" : "var(--danger)";
-    $("outdoor-score").style.color = color;
-    $("outdoor-score").style.borderColor = color;
-    const bars = [];
-    for (let i = 0; i < Math.min(5, state.daily.length); i++) {
-      const s = outdoorScore(state.daily[i]);
-      bars.push({ day: dayName(state.daily[i].date, i), s });
-    }
-    $("outdoor-detail").innerHTML = `<div class="muted small">${I18N().t("outdoorHint")}</div>` +
-      bars.map(b => `<div class="bar"><span style="width:${(b.s / 10) * 100}%;background:${b.s >= 7 ? "var(--good)" : b.s >= 4 ? "var(--warn)" : "var(--danger)"}"></span></div><div class="muted small" style="margin-top:-8px;margin-bottom:6px">${b.day}: ${b.s.toFixed(1)}</div>`).join("");
-  }
-
-  function renderHourly() {
+  function renderOverview(d0, current) {
     const u = state.units;
-    const hours = state.hourly.slice(0, 48).map(h => ({
-      ...h,
-      label: new Date(h.time).toLocaleTimeString(I18N().locale(), { hour: "2-digit" }),
-    }));
-    if (hours.length < 2) { show("hourly-card", false); return; }
-    window.ClimoraChart.drawHourlyChart($("hourly-chart"), hours);
-    $("hourly-strip").innerHTML = hours.filter((_, i) => i % 3 === 0).map(h => `
-      <div class="hour-cell">
-        <div class="h-time">${h.label}</div>
-        <div class="h-icon">${window.ClimoraIcons.svg(h.code, true)}</div>
-        <div class="h-temp">${Math.round(u.convertTemp(h.temp))}${u.temp}</div>
-        <div class="h-precip">${h.precipProb != null ? Math.round(h.precipProb) + "%" : ""}</div>
+    const aq = state.air;
+    const cards = [];
+
+    /* 1. Neerslagkans */
+    const prob = current && current.precipProb != null ? current.precipProb : d0.precipProb;
+    const mm = d0.precip != null ? u.precip(d0.precip) : "0.0";
+    cards.push({
+      icon: "💧", label: I18N().t("ov_precip"),
+      value: `${prob != null ? Math.round(prob) : 0}%`,
+      cls: prob > 60 ? "bad" : prob > 30 ? "warn" : "good",
+      subs: [computeDryUntil() || "", I18N().t("ov_precip_mm", { mm })],
+    });
+
+    /* 2. Wind & Windkracht */
+    const windMs = current && current.wind != null ? current.wind : d0.wind;
+    const bft = beaufort(windMs);
+    const dirIdx = d0.windDir != null ? Math.round(d0.windDir / 45) % 8 : null;
+    const compass = I18N().COMPASS[I18N().lang] || I18N().COMPASS.nl;
+    const gust = current && current.gusts != null ? current.gusts : null;
+    cards.push({
+      icon: "🌬️", label: I18N().t("ov_wind"),
+      value: bft != null ? `${bft} Bft` : "—",
+      cls: bft >= 8 ? "bad" : bft >= 6 ? "warn" : "",
+      subs: [
+        bft != null ? I18N().t(`bft_${bft}`) : "",
+        `${u.wind(windMs || 0)} ${u.windUnit}${dirIdx != null ? " " + compass[dirIdx] : ""}`,
+        gust != null ? I18N().t("gusts", { v: `${u.wind(gust)} ${u.windUnit}` }) : "",
+      ].filter(Boolean),
+    });
+
+    /* 3. UV-index */
+    const uv = uvInfo(aq && aq.uv_index);
+    cards.push({
+      icon: "🕶️", label: I18N().t("ov_uv"),
+      value: uv ? I18N().t("uv_index_label", { v: Math.round(aq.uv_index) }) : "—",
+      cls: uv ? uv.cls : "",
+      subs: uv ? [uv.label, uv.advice] : [],
+    });
+
+    /* 4. Luchtkwaliteit */
+    const aqi = aq && aq.european_aqi != null ? aqiInfo(aq.european_aqi) : null;
+    const pollen = aq ? Math.max(aq.alder_pollen || 0, aq.birch_pollen || 0, aq.grass_pollen || 0) : null;
+    cards.push({
+      icon: "🌿", label: I18N().t("ov_air"),
+      value: aq && aq.european_aqi != null ? I18N().t("aqi_label", { v: Math.round(aq.european_aqi) }) : "—",
+      cls: aqi ? aqi.cls : "",
+      subs: [aqi ? aqi.label : "", pollen != null ? (pollen > 20 ? I18N().t("pollen_high") : I18N().t("pollen_low")) : ""].filter(Boolean),
+    });
+
+    $("overview-grid").innerHTML = cards.map(c => `
+      <div class="card ov-card">
+        <div class="ov-label"><span class="ov-icon">${c.icon}</span>${escapeHtml(c.label)}</div>
+        <div class="ov-value ${c.cls}">${escapeHtml(c.value)}</div>
+        ${c.subs.map(s => `<div class="ov-sub">${escapeHtml(s)}</div>`).join("")}
       </div>`).join("");
   }
 
-  function renderDaily() {
+  function renderHours24() {
     const u = state.units;
-    const all = state.daily;
+    const loc = state.location;
+    const slots = (state.min15.length >= 12 ? state.min15.filter((_, i) => i % 2 === 0) : state.hourly).slice(0, 26);
+    if (slots.length < 2) return;
+
+    $("h-hours").textContent = I18N().t("hours_title", { loc: loc.name });
+    $("hours-sub").textContent = I18N().t("hours_sub");
+
+    /* Uurblokken: Nu + temp + neerslagkans */
+    $("hour-strip").innerHTML = slots.map((s, i) => `
+      <div class="hour-cell${i === 0 ? " now" : ""}">
+        <div class="h-time">${i === 0 ? escapeHtml(I18N().t("now_label")) : escapeHtml(s.timeLabel)}</div>
+        <div class="h-icon">${window.ClimoraIcons.svg(s.code != null ? s.code : 3, true)}</div>
+        <div class="h-temp">${s.temp != null ? u.temp(s.temp) + u.tempUnit : "—"}</div>
+        <div class="h-precip">${s.precipProb != null ? Math.round(s.precipProb) + "%" : ""}</div>
+      </div>`).join("");
+
+    /* Grafiek: blauwe lijn, piek-onderschrift */
+    const points = slots.map(s => ({ tmax: s.temp, tmin: null, p10: null, p90: null, label: s.timeLabel }));
+    window.ClimoraChart.drawTempChart($("hourly-chart"), points, { light: true });
+
+    let peakI = 0;
+    points.forEach((p, i) => { if (p.tmax != null && (points[peakI].tmax == null || p.tmax > points[peakI].tmax)) peakI = i; });
+    const peak = points[peakI];
+    $("chart-caption").textContent = peak.tmax != null
+      ? I18N().t("chart_caption", { loc: loc.name, peak: u.temp(peak.tmax), time: peak.label })
+      : "";
+    $("chart-local").textContent = I18N().t("chart_local", { loc: loc.name });
+  }
+
+  /* ── Pagina: 40 dagen ──────────────────────────────── */
+  function renderDays40() {
+    const u = state.units;
+    const all = state.daily.concat(state.extended);
     if (!all.length) return;
-    const gMin = Math.min(...all.map(d => d.tminP10 != null ? d.tminP10 : d.tmin).filter(v => v != null));
-    const gMax = Math.max(...all.map(d => d.tmaxP90 != null ? d.tmaxP90 : d.tmax).filter(v => v != null));
+
+    $("h-daylist").textContent = I18N().t("nav_40");
+    const gMin = Math.min(...all.map(d => d.tmin).filter(v => v != null));
+    const gMax = Math.max(...all.map(d => (d.tmaxP90 != null ? d.tmaxP90 : d.tmax)).filter(v => v != null));
     const span = Math.max(1, gMax - gMin);
 
-    $("daily-rows").innerHTML = all.map((d, i) => {
-      const lo = ((d.tmin - gMin) / span) * 100;
-      const hi = ((d.tmax - gMin) / span) * 100;
-      return `<div class="day-row">
-        <div class="d-name">${dayName(d.date, i)} ${fmtDate(d.date, { day: "numeric", month: "numeric" })}</div>
+    const rowHtml = (d, i) => {
+      const lo = d.tmin != null ? ((d.tmin - gMin) / span) * 100 : 0;
+      const hi = d.tmax != null ? ((d.tmax - gMin) / span) * 100 : 0;
+      return `<div class="day-row" data-date="${d.date}">
+        <div class="d-name">${escapeHtml(dayName(d.date, i))}${d.source === "caelia" ? `<span class="d-ai">AI</span>` : ""}</div>
         <div class="d-icon">${window.ClimoraIcons.svg(d.code, true)}</div>
-        <div class="temp-bar"><span style="left:${lo}%;width:${Math.max(4, hi - lo)}%"></span></div>
-        <div class="d-range"><strong>${Math.round(u.convertTemp(d.tmax))}°</strong> <span class="d-tmin">${Math.round(u.convertTemp(d.tmin))}°</span></div>
-        <div class="d-range d-tmin">${d.tmaxP10 != null ? `${Math.round(u.convertTemp(d.tmaxP10))}–${Math.round(u.convertTemp(d.tmaxP90))}°` : ""}</div>
-        <div class="d-precip">${d.precipProb != null ? Math.round(d.precipProb) + "%" : ""} ${d.precip != null ? u.convertPrecip(d.precip).toFixed(1) + " " + u.precip : ""}</div>
+        <div>
+          <div class="d-label">${escapeHtml(I18N().weatherLabel(d.code))}</div>
+          <div class="temp-bar"><span style="left:${lo}%;width:${Math.max(4, hi - lo)}%"></span></div>
+        </div>
+        <div class="d-precip">${d.precipProb != null ? Math.round(d.precipProb) + "%" : ""}<div class="muted small" style="font-size:0.72rem">${d.precip != null ? u.precip(d.precip) + " " + u.precipUnit : ""}</div></div>
+        <div class="d-range"><strong>${d.tmax != null ? u.temp(d.tmax) : "—"}°</strong> <span class="d-tmin">${d.tmin != null ? u.temp(d.tmin) : "—"}°</span></div>
       </div>`;
-    }).join("");
-  }
+    };
 
-  function renderRegimes() {
-    const u = state.units;
+    $("daily-rows").innerHTML = state.daily.map((d, i) => rowHtml(d, i)).join("");
+
+    /* Regime-outlook + dag 17–40 */
     const ext = state.extended;
-    if (!ext.length) { show("regime-card", false); return; }
-    $("regime-note").textContent = I18N().t("regimeNote");
+    const hasExt = ext.length > 0;
+    show("regime-block", hasExt);
+    show("btn-toggle-long", hasExt);
+    if (!hasExt) return;
 
-    /* Groepeer per regime-blok */
-    const groups = [];
+    $("regime-note").textContent = I18N().t("regime_sub");
+    $("btn-toggle-long").textContent = state.showLongRange ? I18N().t("regime_hide_days") : I18N().t("regime_show_days");
+
+    /* Groepeer per regime, zoals RegimeOutlook */
+    const groups = {};
     for (const d of ext) {
-      const last = groups[groups.length - 1];
-      if (last && last.regime === d.regime) { last.days.push(d); }
-      else groups.push({ regime: d.regime, label: d.regimeLabel, days: [d] });
+      const key = d.regime && I18N().REGIME_META[d.regime] ? d.regime : "neutraal";
+      (groups[key] = groups[key] || []).push(d);
     }
-    $("regime-rows").innerHTML = groups.map(g => {
-      const first = g.days[0].date, lastD = g.days[g.days.length - 1].date;
-      const tmaxs = g.days.flatMap(d => [d.tmaxP10, d.tmaxP90]).filter(v => v != null);
-      const lo = Math.round(u.convertTemp(Math.min(...tmaxs)));
-      const hi = Math.round(u.convertTemp(Math.max(...tmaxs)));
-      const precip = g.days.reduce((s, d) => s + (d.precip || 0), 0);
+    const rows = Object.entries(groups)
+      .map(([key, list]) => ({
+        key, count: list.length,
+        pct: Math.round((list.length / ext.length) * 100),
+        tmax: list.reduce((s, d) => s + (d.tmax || 0), 0) / list.length,
+        rain: Math.round(list.reduce((s, d) => s + (d.precipProb || 0), 0) / list.length),
+        from: list[0].date, to: list[list.length - 1].date,
+      }))
+      .sort((a, b) => b.count - a.count);
+
+    $("regime-rows").innerHTML = rows.map(r => {
+      const meta = I18N().REGIME_META[r.key];
+      const lang = I18N().lang;
+      const info = meta[lang] || meta.nl;
       return `<div class="regime-row">
-        <div class="r-dates">${fmtDate(first, { day: "numeric", month: "short" })} – ${fmtDate(lastD, { day: "numeric", month: "short" })}</div>
-        <span class="regime-badge">${escapeHtml(g.label)}</span>
-        <span class="muted">${lo}–${hi}${u.temp} · ${u.convertPrecip(precip).toFixed(0)} ${u.precip} ${I18N().t("precip").toLowerCase()}</span>
+        <span class="r-icon">${meta.icon}</span>
+        <div class="r-body">
+          <div class="r-head">
+            <span class="r-name">${escapeHtml(info.name)}</span>
+            <span class="r-days">${escapeHtml(I18N().t("regime_days", { n: r.count }))}</span>
+            <span class="r-pct">${r.pct}%</span>
+          </div>
+          <div class="r-bar"><span style="width:${r.pct}%"></span></div>
+          <div class="r-desc">${escapeHtml(info.desc)}</div>
+          <div class="r-meta">
+            <span>${escapeHtml(I18N().t("regime_avg", { v: `${u.temp(r.tmax)}${u.tempUnit}` }))}</span>
+            <span>🌧️ ${r.rain}%</span>
+            <span style="margin-left:auto">${fmtDate(r.from, { day: "numeric", month: "short" })} – ${fmtDate(r.to, { day: "numeric", month: "short" })}</span>
+          </div>
+        </div>
       </div>`;
     }).join("");
+
+    /* Lange-lijst (17–40) onder de regimes */
+    let longList = $("daily-rows-long");
+    if (!longList) {
+      longList = document.createElement("div");
+      longList.id = "daily-rows-long";
+      $("regime-block").after(longList);
+    }
+    longList.className = state.showLongRange ? "" : "hidden";
+    longList.innerHTML = ext.map((d, i) => rowHtml(d, i + 16)).join("");
   }
 
-  function renderAir(air) {
-    const el = $("air-content");
-    if (!air) { show("air-card", false); return; }
-    const aqi = air.european_aqi;
-    const label = aqi == null ? "—" :
-      aqi <= 20 ? I18N().t("aqiGood") : aqi <= 40 ? I18N().t("aqiFair") : aqi <= 60 ? I18N().t("aqiModerate") :
-      aqi <= 80 ? I18N().t("aqiPoor") : aqi <= 100 ? I18N().t("aqiVeryPoor") : I18N().t("aqiExtremelyPoor");
-    const items = [
-      { label: I18N().t("aqi"), value: aqi != null ? `${Math.round(aqi)} — ${label}` : "—" },
-      { label: I18N().t("pm25"), value: air.pm2_5 != null ? air.pm2_5.toFixed(0) + " µg/m³" : "—" },
-      { label: I18N().t("pm10"), value: air.pm10 != null ? air.pm10.toFixed(0) + " µg/m³" : "—" },
-      { label: I18N().t("ozone"), value: air.ozone != null ? air.ozone.toFixed(0) + " µg/m³" : "—" },
-      { label: I18N().t("no2"), value: air.nitrogen_dioxide != null ? air.nitrogen_dioxide.toFixed(0) + " µg/m³" : "—" },
-    ];
-    el.innerHTML = `<div class="air-grid">${items.map(i => `<div class="air-item"><div class="label">${i.label}</div><div class="value">${i.value}</div></div>`).join("")}</div>`;
-  }
-
-  function renderPro(learned) {
+  /* ── Pagina: Maker Dashboard ───────────────────────── */
+  function renderMaker(learned) {
     const { weights } = Captain().computeWeights();
     const stats = Captain().getStats();
+    $("h-captain").textContent = I18N().t("h_captain");
     $("captain-weights").innerHTML = Object.keys(weights).map(m => {
       const name = Captain().MODEL_NAMES[m] || m;
-      const pctW = Math.round(weights[m] * 100);
-      return `<div class="weight-row"><span class="w-name">${name}</span><div class="w-bar"><span style="width:${pctW}%"></span></div><span class="w-pct">${pctW}%</span></div>`;
-    }).join("") + `<p class="muted small">${learned ? I18N().t("weightLearned") + " · " + stats.samples + " " + I18N().t("samples") : I18N().t("weightDefault")}</p>`;
+      const w = Math.round(weights[m] * 100);
+      return `<div class="weight-row"><span class="w-name">${escapeHtml(name)}</span><div class="w-bar"><span style="width:${w}%"></span></div><span class="w-pct">${w}%</span></div>`;
+    }).join("") + `<p class="muted small">${escapeHtml(learned ? I18N().t("weight_learned") : I18N().t("weight_default"))} · ${stats.samples} ${escapeHtml(I18N().t("samples"))}</p>`;
 
     const insights = Captain().getInsights();
-    $("captain-insights").innerHTML = `<h3 class="small muted" style="margin:14px 0 4px">${I18N().t("captainInsights")}</h3>` +
+    $("captain-insights").innerHTML = `<h3 class="small muted" style="margin:14px 0 4px">${escapeHtml(I18N().t("captain_insights"))}</h3>` +
       (insights.length
         ? insights.map(i => `<div class="insight-item">${escapeHtml(i.text)}</div>`).join("")
-        : `<p class="muted small">${I18N().t("captainNoData")}</p>`);
+        : `<p class="muted small">${escapeHtml(I18N().t("captain_no_data"))}</p>`);
 
     const info = state.caeliaInfo || {};
     const regimes = Object.keys(info.regimes || {}).map(r => {
-      const meta = Caelia().REGIMES[r];
-      return `${meta ? meta.label : r} (${info.regimes[r]}×)`;
+      const meta = I18N().REGIME_META[r];
+      return `${meta ? meta[I18N().lang].name : r} (${info.regimes[r]}×)`;
     }).join(" · ");
+    $("h-caelia").textContent = I18N().t("h_caelia");
     $("caelia-detail").innerHTML = `
-      <p class="muted small">${I18N().t("caeliaSource")}</p>
-      <p><strong>${I18N().t("caeliaRegimes")}:</strong> ${regimes || "—"}</p>
-      <p><strong>${I18N().t("caeliaAnalogs")}:</strong> ${(info.analogYears || []).join(", ") || "—"}</p>
-      <p class="muted small">${state.extended.length} ${I18N().t("days")} · ${I18N().t("modelSpread")}</p>`;
+      <p class="muted small">${escapeHtml(I18N().t("caelia_source"))}</p>
+      <p><strong>${escapeHtml(I18N().t("caelia_analogs"))}:</strong> ${escapeHtml((info.analogYears || []).join(", ") || "—")}</p>
+      <p><strong>${escapeHtml(I18N().t("regime_title"))}:</strong> ${escapeHtml(regimes || "—")}</p>
+      <p class="muted small">${state.extended.length} ${escapeHtml(I18N().t("days_word"))} · ${escapeHtml(I18N().t("model_spread"))}</p>`;
+
+    /* Luchtkwaliteit-detail */
+    const aq = state.air;
+    $("h-air").textContent = I18N().t("ov_air");
+    if (!aq) { $("air-content").innerHTML = `<p class="muted small">—</p>`; return; }
+    const items = [
+      { label: "PM2.5", value: aq.pm2_5 != null ? Math.round(aq.pm2_5) + " µg/m³" : "—" },
+      { label: "PM10", value: aq.pm10 != null ? Math.round(aq.pm10) + " µg/m³" : "—" },
+      { label: I18N().t("stat_ozone"), value: aq.ozone != null ? Math.round(aq.ozone) + " µg/m³" : "—" },
+      { label: "NO₂", value: aq.nitrogen_dioxide != null ? Math.round(aq.nitrogen_dioxide) + " µg/m³" : "—" },
+      { label: "UV", value: aq.uv_index != null ? String(Math.round(aq.uv_index * 10) / 10) : "—" },
+    ];
+    $("air-content").innerHTML = `<div class="air-grid">${items.map(i => `<div class="air-item"><div class="label">${escapeHtml(i.label)}</div><div class="value">${escapeHtml(i.value)}</div></div>`).join("")}</div>`;
   }
 
-  function escapeHtml(s) {
-    return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  /* ── Statische teksten ─────────────────────────────── */
+  function renderStaticTexts() {
+    const loc = state.location;
+    const t = I18N().t;
+    $("tab-home").textContent = t("nav_home");
+    $("tab-days40").textContent = t("nav_40");
+    $("tab-radar").textContent = t("nav_radar");
+    $("tab-maker").textContent = t("nav_maker");
+    $("tab-about").textContent = t("nav_about");
+    $("h-overview").textContent = t("overview_title");
+    $("h-radar").textContent = t("radar_title", { loc: loc.name });
+    $("h-about").textContent = t("about_title");
+    $("about-text").textContent = t("about_text");
+    $("search-input").placeholder = t("search_placeholder");
+    $("cookie-text").textContent = t("cookie_text");
+    $("cookie-ok").textContent = t("cookie_ok");
+    $("link-privacy").textContent = t("privacy_link");
+    $("link-terms").textContent = t("terms_link");
+    $("footer-days").textContent = t("footer_days", {
+      first: "Open-Meteo · MET Norway",
+      second: "CAELIA v9",
+      loc: loc.name,
+    });
+    $("footer-sources").textContent = t("footer_bronnen");
+    $("footer-disclaimer").textContent = t("footer_ai_disclaimer");
+    $("lang-select").value = I18N().lang;
+    document.documentElement.lang = I18N().lang;
+  }
+
+  /* ── Navigatie ─────────────────────────────────────── */
+  function switchPage(page) {
+    state.page = page;
+    document.querySelectorAll(".page").forEach(el => el.classList.add("hidden"));
+    show("page-" + page, true);
+    document.querySelectorAll(".nav-tab").forEach(b => b.classList.toggle("active", b.dataset.page === page));
+    if (page === "radar" && state.location) {
+      window.ClimoraRadar.init(state.location.lat, state.location.lon, "radar-map", 8);
+    }
   }
 
   /* ── Events ────────────────────────────────────────── */
-  function applyMode() {
-    const pro = state.mode === "pro";
-    $("mode-toggle").textContent = pro ? "Pro" : "Publiek";
-    document.querySelectorAll(".pro-only").forEach(el => el.classList.toggle("hidden", !pro));
-    localStorage.setItem("climora_mode", state.mode);
-  }
-
-  function applyLang() {
-    document.documentElement.lang = I18N().lang;
-    $("search-input").placeholder = I18N().t("searchPlaceholder");
-    $("lang-select").value = I18N().lang;
-    $("h-outdoor").textContent = I18N().t("hOutdoor");
-    $("h-hourly").textContent = I18N().t("hHourly");
-    $("h-daily").textContent = I18N().t("hDaily");
-    $("h-regime").textContent = I18N().t("hRegime");
-    $("h-radar").textContent = I18N().t("hRadar");
-    $("h-air").textContent = I18N().t("hAir");
-    $("h-captain").textContent = I18N().t("hCaptain");
-    $("h-caelia").textContent = I18N().t("hCaelia");
-  }
-
   function wireEvents() {
+    $("nav-tabs").addEventListener("click", e => {
+      const btn = e.target.closest(".nav-tab");
+      if (btn) switchPage(btn.dataset.page);
+    });
+    $("brand-loc").addEventListener("click", () => switchPage("home"));
+    $("btn-open-radar").addEventListener("click", () => switchPage("radar"));
+
+    $("btn-toggle-long").addEventListener("click", () => {
+      state.showLongRange = !state.showLongRange;
+      renderDays40();
+    });
+
     let searchTimer = null;
+    $("search-btn").addEventListener("click", () => {
+      const panel = $("search-panel");
+      const wasHidden = panel.classList.contains("hidden");
+      show("search-panel", wasHidden);
+      if (wasHidden) $("search-input").focus();
+    });
+
     $("search-input").addEventListener("input", e => {
       clearTimeout(searchTimer);
       const q = e.target.value.trim();
@@ -394,13 +589,13 @@
         try {
           const results = await API().geocodeSearch(q);
           const box = $("search-results");
-          if (!results.length) { box.innerHTML = `<div class="search-result muted">${I18N().t("noResults")}</div>`; show("search-results", true); return; }
+          if (!results.length) { box.innerHTML = `<div class="search-result muted">${escapeHtml(I18N().t("search_no_results"))}</div>`; show("search-results", true); return; }
           box.innerHTML = results.map(r =>
-            `<div class="search-result" data-lat="${r.lat}" data-lon="${r.lon}" data-name="${escapeHtml(r.name)}" data-country="${escapeHtml(r.country || "")}" data-cc="${r.countryCode || ""}"><span>${escapeHtml(r.name)}</span><span class="muted small">${escapeHtml([r.admin1, r.country].filter(Boolean).join(", "))}</span></div>`
+            `<div class="search-result" data-lat="${r.lat}" data-lon="${r.lon}" data-name="${escapeHtml(r.name)}" data-country="${escapeHtml(r.country || "")}" data-cc="${r.countryCode || ""}"><span><strong>${escapeHtml(r.name)}</strong></span><span class="muted small">${escapeHtml([r.admin1, r.country].filter(Boolean).join(", "))}</span></div>`
           ).join("");
           show("search-results", true);
         } catch {
-          $("search-results").innerHTML = `<div class="search-result muted">${I18N().t("errorSearch")}</div>`;
+          $("search-results").innerHTML = `<div class="search-result muted">${escapeHtml(I18N().t("search_no_results"))}</div>`;
           show("search-results", true);
         }
       }, 300);
@@ -410,42 +605,47 @@
       const item = e.target.closest(".search-result");
       if (!item || !item.dataset.lat) return;
       show("search-results", false);
+      show("search-panel", false);
       $("search-input").value = "";
       saveLocation({ lat: parseFloat(item.dataset.lat), lon: parseFloat(item.dataset.lon), name: item.dataset.name, country: item.dataset.country, countryCode: item.dataset.cc });
       loadWeather();
     });
 
     document.addEventListener("click", e => {
-      if (!e.target.closest(".search-wrap")) show("search-results", false);
+      if (!e.target.closest(".search-panel") && !e.target.closest("#search-btn")) {
+        show("search-results", false);
+      }
     });
 
     $("lang-select").addEventListener("change", e => {
       I18N().setLang(e.target.value);
-      applyLang();
+      renderStaticTexts();
       if (state.location) loadWeather();
     });
 
-    $("mode-toggle").addEventListener("click", () => {
-      state.mode = state.mode === "pro" ? "publiek" : "pro";
-      applyMode();
+    $("cookie-ok").addEventListener("click", () => {
+      try { localStorage.setItem("climora_cookie_accepted", "1"); } catch { /* negeer */ }
+      show("cookie-notice", false);
     });
+  }
 
-    $("btn-favorite").addEventListener("click", () => {
-      if (!state.location) return;
-      const favs = JSON.parse(localStorage.getItem("climora_favorite_locations") || "[]");
-      if (!favs.some(f => f.lat === state.location.lat && f.lon === state.location.lon)) {
-        favs.push(state.location);
-        localStorage.setItem("climora_favorite_locations", JSON.stringify(favs.slice(-8)));
-      }
-      $("btn-favorite").textContent = "★";
+  /* ── Live klok ─────────────────────────────────────── */
+  function tickClock() {
+    $("live-clock").textContent = I18N().t("live_label", {
+      time: new Date().toLocaleTimeString(I18N().locale(), { hour: "2-digit", minute: "2-digit" }),
     });
   }
 
   /* ── Boot ──────────────────────────────────────────── */
   async function boot() {
-    applyLang();
-    applyMode();
+    setLoadingStep("load_weather");
     wireEvents();
+    tickClock();
+    setInterval(tickClock, 30000);
+    try {
+      if (!localStorage.getItem("climora_cookie_accepted")) show("cookie-notice", true);
+    } catch { /* negeer */ }
+    setLoadingStep("load_locate");
     state.location = await resolveLocation();
     await loadWeather();
   }

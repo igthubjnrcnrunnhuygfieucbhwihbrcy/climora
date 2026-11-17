@@ -14,6 +14,7 @@
     frontaal_actief:    { tmaxF: 0.95, tminF: 1.10, precipF: 1.45, windF: 1.25, label: "Frontaal actief" },
     dieptecycloon:      { tmaxF: 0.80, tminF: 1.05, precipF: 1.80, windF: 1.55, label: "Dieptecycloon" },
     zonal_west:         { tmaxF: 1.00, tminF: 1.00, precipF: 1.00, windF: 1.05, label: "Zonale weststroming" },
+    neutraal:           { tmaxF: 1.00, tminF: 1.00, precipF: 1.00, windF: 1.00, label: "Neutraal / wisselvallig" },
   };
 
   function dayOfYear(date) {
