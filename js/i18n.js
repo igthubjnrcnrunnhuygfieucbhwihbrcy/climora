@@ -181,7 +181,17 @@
 
   const LOCALES = { nl: "nl-NL", en: "en-GB", de: "de-DE" };
 
+  /* Taal: handmatige keuze > subdomein (nl.climora.com = NL) > browsertaal */
+  function langFromHostname() {
+    const sub = location.hostname.split(".")[0].toLowerCase();
+    if (["nl", "en", "de"].includes(sub)) return sub;
+    if (location.hostname.endsWith(".nl")) return "nl";
+    if (location.hostname.endsWith(".de") || location.hostname.endsWith(".at") || location.hostname.endsWith(".ch")) return "de";
+    return null;
+  }
+
   let lang = localStorage.getItem("climora_lang") ||
+    langFromHostname() ||
     (["nl", "en", "de"].includes((navigator.language || "nl").slice(0, 2)) ? navigator.language.slice(0, 2) : "nl");
 
   function setLang(l) {

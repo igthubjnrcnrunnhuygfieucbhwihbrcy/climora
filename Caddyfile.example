@@ -1,0 +1,26 @@
+# ClimoraWeather — zelf hosten met eigen domein en automatische HTTPS
+#
+# Gebruik:
+#   1. Installeer Caddy:  https://caddyserver.com/docs/install
+#   2. Kopieer dit bestand naar Caddyfile en pas de domeinnamen aan
+#   3. Wijs in je DNS-paneel de A-records van alle domeinen naar het
+#      publieke IP van deze server (poorten 80 + 443 open in de router)
+#   4. Start:  caddy run
+#
+# Caddy regelt automatisch Let's Encrypt-certificaten voor elk domein.
+
+climora.example.nl, www.climora.example.nl, nl.climora.example.com, en.climora.example.com, de.climora.example.com {
+	root * /var/www/climora
+	file_server
+	encode gzip
+
+	# Netjes: /privacy en /voorwaarden zonder .html
+	rewrite /privacy      /privacy.html
+	rewrite /voorwaarden  /voorwaarden.html
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+}

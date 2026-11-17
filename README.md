@@ -54,6 +54,10 @@ Open-Meteo (4 modellen) + MET Norway ──► gewogen combinatie ──► dag 
 | [js/caelia.js](js/caelia.js) | CAELIA — dag 17–40 |
 | [js/main.js](js/main.js) | Orchestratie en weergave |
 
+## Eigen domein (climora.nl, nl.climora.com, …)
+
+De site kan gratis via GitHub Pages, en elk eigen domein of taalsubdomein koppel je met een paar DNS-records — inclusief automatische taal per subdomein (`nl.` Nederlands, `de.` Duits, `en.` Engels). Volledige uitleg: **[docs/DOMEIN.md](docs/DOMEIN.md)**. Voor zelf hosten met automatische HTTPS staat er een kant-en-klaar [`Caddyfile.example`](Caddyfile.example) bij.
+
 ## Problemen oplossen
 
 - **Geen data?** Controleer of je internet werkt; de bronnen zijn gratis maar publiek.
