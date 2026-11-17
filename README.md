@@ -1,79 +1,59 @@
-# Climora Atmos Core
+# ClimoraWeather
 
-**Weather Intelligence Platform** — eigen AI-gestuurde weervoorspellingen met lokale bias-correctie.
+**AI-gestuurde weerwebsite, volledig in eigen beheer.** Voorspellingen tot 40 dagen vooruit met multi-model consensus, een gesloten leerlus (AI Captain) en een eigen lange-termijnlaag (CAELIA). Geen accounts, geen API-sleutels, geen build-stap.
+
+## Kenmerken
+
+| Laag | Wat het doet |
+|------|--------------|
+| Multi-model forecast | ECMWF IFS, DWD ICON, NOAA GFS en MET Norway, gewogen gecombineerd (dag 1–16) |
+| Onzekerheidsband | Modelspreiding als P10–P90-band per dag |
+| CAELIA | Dag 17–40 uit klimaatprofiel (30 jaar archief), analoge dagen en regime-analyse — als bandbreedte, nooit schijnprecisie |
+| AI Captain | Verifieert oude voorspellingen tegen waarnemingen, meet bias per model/variabele/lead-time, leert dynamische gewichten (70% geleerd + 30% standaard) |
+| Live regenradar | RainViewer-tegels op Leaflet/OpenStreetMap |
+| Luchtkwaliteit | AQI, PM2.5, PM10, ozon, NO₂ |
+| Waarschuwingen | MeteoAlarm-feeds voor 28 landen |
+| i18n | Nederlands, Engels, Duits; eenheden per land (°C/°F, km/u vs mph) |
+| Publiek/Pro | Pro toont modelgewichten, CaptainMemory-inzichten en CAELIA-details |
+
+## Zelf draaien
+
+Geen build-stap nodig — statische bestanden:
+
+```bash
+# optie 1: elke statische webserver
+python3 -m http.server 8080
+
+# optie 2: direct openen
+open index.html
+```
+
+Of host het op GitHub Pages: *Settings → Pages → deploy from branch*.
+
+## Gebruikte API's (alle sleutelloos)
+
+- Open-Meteo — forecast (4 modellen), uurdata, archief (30 jaar), luchtkwaliteit, geocoding
+- MET Norway — onafhankelijke tweede bron (locationforecast 2.0)
+- RainViewer — radartegels
+- MeteoAlarm — waarschuwingen (via openbare CORS-proxy)
+- BigDataCloud / geojs.io — reverse geocoding en IP-locatie
 
 ## Architectuur
 
 ```
-extern weer (Open-Meteo, KNMI, Meteostat)
-       ↓
-  Data Collectors (microservices)
-       ↓
-  PostgreSQL + TimescaleDB
-       ↓
-  AI Model Pipeline
-  ├── Bias Correction (XGBoost/LightGBM)
-  ├── Time-Series Forecast (N-BEATS / TFT / LSTM)
-  └── Confidence Model
-       ↓
-  FastAPI — /api/v1/*
-       ↓
-  Redis Cache
-       ↓
-  Website / App
+index.html + css/ + js/
+├── i18n.js     talen + eenheden per land
+├── icons.js    SVG-weericonen (LiveSkyIcon-stijl)
+├── api.js      alle externe bronnen
+├── captain.js  AI Captain: ModelTrack → verificatie → bias → gewichten
+├── caelia.js   klimaatprofiel + analoge dagen + regimes → dag 17–40
+├── chart.js    canvas-grafieken (band, uurlijn)
+├── radar.js    Leaflet + RainViewer
+└── main.js     orchestratie en weergave
 ```
 
-## Componenten
-
-| Laag | Technologie | Doel |
-|------|-------------|------|
-| Data Ingestie | Python collectors | Open-Meteo, KNMI, lokaal station |
-| Opslag | PostgreSQL + TimescaleDB | Historische + live data |
-| Cache | Redis | Snelle API responses |
-| AI Models | XGBoost, LightGBM, PyTorch | Bias correctie, forecasting, confidence |
-| API | FastAPI | Versioned REST endpoints |
-| Infra | Docker Compose | Alles containerized |
-
-## Quick Start
-
-```bash
-# Clone en start
-git clone https://github.com/your-org/climora.git
-cd climora
-
-# Start alle services
-docker compose up -d
-
-# Of lokaal ontwikkelen
-pip install -e ".[dev]"
-uvicorn src.api.main:app --reload
-```
-
-## API Endpoints
-
-```
-GET /api/v1/current        — Huidig weer
-GET /api/v1/hourly         — Uurlijkse voorspelling
-GET /api/v1/daily          — Dagelijkse voorspelling
-GET /api/v1/forecast/40day — 40-dagen voorspelling
-GET /api/v1/radar          — Radardata
-GET /api/v1/airquality     — Luchtkwaliteit
-GET /api/v1/health         — Health check
-```
-
-## Ontwikkeling
-
-```bash
-# Tests
-pytest
-
-# Lint
-ruff check src/ tests/
-
-# Type check
-mypy src/
-```
+Leermetingen en voorkeuren staan in `localStorage` (`climora_modeltrack`, `climora_captainmemory`, `climora_selected_location`, …) en verlaten het toestel niet — zie [privacyverklaring](privacy.html).
 
 ## Licentie
 
-MIT
+Eigen beheer — alle code in deze repository is van de eigenaar.
