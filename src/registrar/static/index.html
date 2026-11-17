@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Climora Registrar — Gratis domeinnamen</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header>
+    <div class="logo">
+      <span class="logo-mark">◈</span>
+      <div>
+        <h1>Climora Registrar</h1>
+        <p>Domeinnamen registreren — gratis, honderden extensies</p>
+      </div>
+    </div>
+    <nav>
+      <button id="nav-search" class="nav-btn active">Zoeken</button>
+      <button id="nav-dashboard" class="nav-btn">Mijn domeinen</button>
+      <span id="auth-area"></span>
+    </nav>
+  </header>
+
+  <main>
+    <section id="view-search">
+      <div class="hero">
+        <h2>Jouw domein. <span class="accent">€0,00.</span></h2>
+        <p>Zoek je droomdomein in .nl, .com, .it, .de, .eu, .ai en honderden andere extensies.</p>
+      </div>
+      <form id="search-form" class="search-bar">
+        <input id="search-input" type="text" placeholder="bijv. mijnsite, of mijnsite.nl" autocomplete="off" />
+        <button type="submit">Zoeken</button>
+      </form>
+      <div id="search-results" class="results"></div>
+    </section>
+
+    <section id="view-dashboard" class="hidden">
+      <h2>Mijn domeinen</h2>
+      <div id="domain-list" class="domain-list"></div>
+      <div id="domain-manager" class="hidden"></div>
+    </section>
+
+    <section id="view-auth" class="hidden">
+      <div class="auth-card">
+        <div class="tabs">
+          <button id="tab-login" class="tab active">Inloggen</button>
+          <button id="tab-register" class="tab">Account maken</button>
+        </div>
+        <form id="login-form">
+          <label>E-mailadres <input name="email" type="email" required /></label>
+          <label>Wachtwoord <input name="password" type="password" required minlength="8" /></label>
+          <button type="submit">Inloggen</button>
+        </form>
+        <form id="register-form" class="hidden">
+          <label>Naam <input name="name" type="text" /></label>
+          <label>E-mailadres <input name="email" type="email" required /></label>
+          <label>Wachtwoord <input name="password" type="password" required minlength="8" /></label>
+          <button type="submit">Account maken</button>
+        </form>
+        <p class="hint">Registratie is gratis. Wij vragen geen betaalgegevens.</p>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast hidden"></div>
+  <footer>
+    <p>Climora Registrar — gratis domeinregistratie · Sandbox-registry (demo). Voor live registraties bij SIDN, Verisign, IIT-CNR e.a. is EPP-accreditatie nodig — zie de README.</p>
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>
