@@ -18,7 +18,7 @@
   </div>
 
   <div id="app-root" class="hidden">
-    <!-- ── Header + navigatie ───────────────────────── -->
+    <!-- ── Header + navigatie ─────────────────────────── -->
     <header class="topbar">
       <div class="topbar-inner">
         <div class="brand" id="brand-loc">
@@ -58,16 +58,23 @@
     <div id="warnings-banner" class="warnings hidden"></div>
 
     <main id="app">
-      <!-- ── PAGINA: Home (Publiek) ───────────────────── -->
+      <!-- ── PAGINA: Home (Publiek) ─────────────────── -->
       <section id="page-home" class="page">
         <div class="grid-2">
-          <div class="card hero-card">
-            <h2 id="hero-verdict" class="hero-verdict">—</h2>
-            <div class="hero-temp-row">
-              <span id="hero-temp" class="hero-temp">—</span>
-              <span id="hero-feels" class="hero-feels"></span>
+          <div class="hero-card" id="hero-card">
+            <div class="hero-top">
+              <h2 id="hero-verdict" class="hero-verdict">—</h2>
+              <span class="hd-live" id="hero-live">LIVE</span>
+            </div>
+            <div class="hero-main">
+              <div class="hero-icon" id="hero-icon"></div>
+              <div class="hero-temp-block">
+                <span id="hero-temp" class="hero-temp">—</span>
+                <span id="hero-feels" class="hero-feels"></span>
+              </div>
             </div>
             <p id="hero-desc" class="hero-desc">—</p>
+            <div class="hero-chips" id="hero-chips"></div>
             <ul class="hero-details" id="hero-details"></ul>
           </div>
           <div class="card radar-card">
@@ -89,9 +96,25 @@
           <h2 id="h-hours">Komende 24 uur</h2>
           <p class="muted small" id="hours-sub"></p>
           <div class="hour-strip" id="hour-strip"></div>
-          <div class="hscroll"><canvas id="hourly-chart" height="200"></canvas></div>
+          <div class="hscroll"><canvas id="hourly-chart" height="220"></canvas></div>
           <p class="muted small" id="chart-caption" style="margin-top:8px"></p>
           <p class="muted small" id="chart-local" style="margin-top:2px"></p>
+        </div>
+
+        <div class="grid-2">
+          <div class="card sun-card">
+            <h2 id="h-sun">Zon</h2>
+            <canvas id="sun-canvas" height="130"></canvas>
+            <div class="sun-times">
+              <div><span class="sun-label" id="sun-rise-label">—</span><strong id="sun-rise">—</strong></div>
+              <div><span class="sun-label" id="sun-set-label">—</span><strong id="sun-set">—</strong></div>
+              <div><span class="sun-label" id="sun-length-label">—</span><strong id="sun-length">—</strong></div>
+            </div>
+          </div>
+          <div class="card">
+            <h2 id="h-week">Komende 7 dagen</h2>
+            <div class="week-strip" id="week-strip"></div>
+          </div>
         </div>
       </section>
 
@@ -114,7 +137,16 @@
         <div class="card">
           <h2 id="h-radar">Regenradar</h2>
           <div id="radar-map" class="radar-map"></div>
-          <div class="radar-footer muted small"><span id="radar-time"></span></div>
+          <div class="radar-controls">
+            <button id="radar-play" class="btn-play" aria-label="Afspelen/pauzeren">⏸</button>
+            <input id="radar-slider" type="range" min="0" max="100" value="0" step="1" aria-label="Radar-tijd" />
+            <span id="radar-time" class="radar-time">—</span>
+          </div>
+          <div class="radar-legend">
+            <span class="muted small" id="radar-legend-label">Neerslagintensiteit:</span>
+            <span class="lg lg-1"></span><span class="lg lg-2"></span><span class="lg lg-3"></span><span class="lg lg-4"></span><span class="lg lg-5"></span>
+            <span class="muted small">licht → zwaar</span>
+          </div>
         </div>
       </section>
 
@@ -139,22 +171,21 @@
       <section id="page-about" class="page hidden">
         <div class="card">
           <h2 id="h-about">Over Climora</h2>
-          <p class="muted" id="about-text"></p>
+          <p id="about-text"></p>
         </div>
       </section>
     </main>
 
     <footer class="footer">
       <p id="footer-days"></p>
-      <p class="muted small" id="footer-sources"></p>
-      <p class="muted small" id="footer-disclaimer"></p>
-      <p><a href="privacy.html" id="link-privacy">Privacy</a> · <a href="voorwaarden.html" id="link-terms">Voorwaarden</a></p>
+      <p id="footer-sources"></p>
+      <p id="footer-disclaimer"></p>
+      <p><a href="#" id="link-privacy">Privacy</a> · <a href="#" id="link-terms">Voorwaarden</a></p>
     </footer>
 
-    <!-- AVG: functionele opslag -->
     <div id="cookie-notice" class="cookie-notice hidden">
       <span id="cookie-text"></span>
-      <button id="cookie-ok" class="btn-primary">Begrepen</button>
+      <button id="cookie-ok" class="btn-primary">OK</button>
     </div>
   </div>
 

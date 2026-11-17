@@ -181,22 +181,52 @@ main { max-width: 1180px; margin: 0 auto; padding: 20px; }
 .grid-2 { display: grid; grid-template-columns: 1.15fr 1fr; gap: 16px; }
 .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
 
-/* ── Hero-kaart ─────────────────────────────────────── */
-.hero-verdict { color: var(--good); font-size: 1.15rem; margin-bottom: 6px; }
-.hero-verdict.moderate { color: var(--warn); }
-.hero-verdict.bad { color: var(--danger); }
-.hero-temp-row { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
-.hero-temp { font-size: 3.6rem; font-weight: 800; letter-spacing: -0.03em; }
-.hero-feels { color: var(--muted); font-size: 0.95rem; }
-.hero-desc { margin: 6px 0 14px; font-size: 0.98rem; }
+/* ── Hero-kaart: dynamische hemel-gradient ───── */
+.hero-card {
+  position: relative;
+  color: #fff;
+  border: none;
+  padding: 22px 24px;
+  border-radius: var(--radius);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
+  overflow: hidden;
+  transition: background 0.6s ease;
+}
+.sky-clear { background: linear-gradient(135deg, #1d4ed8 0%, #3b82f6 45%, #60a5fa 100%); }
+.sky-cloudy { background: linear-gradient(135deg, #475569 0%, #64748b 55%, #94a3b8 100%); }
+.sky-rain { background: linear-gradient(135deg, #334155 0%, #475569 55%, #64748b 100%); }
+.sky-storm { background: linear-gradient(135deg, #0f172a 0%, #1e293b 55%, #334155 100%); }
+.sky-night { background: linear-gradient(135deg, #0f172a 0%, #1e293b 55%, #334155 100%); }
+.hero-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.hero-verdict { color: #fff; font-size: 1.12rem; margin: 0; }
+.hero-verdict.moderate { color: #fde68a; }
+.hero-verdict.bad { color: #fecaca; }
+.hero-card .hd-live { color: #fff; background: rgba(255, 255, 255, 0.18); border-color: rgba(255, 255, 255, 0.35); }
+.hero-main { display: flex; align-items: center; gap: 18px; margin: 10px 0 2px; }
+.hero-icon svg { width: 84px; height: 84px; filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.25)); }
+.hero-temp-block { display: flex; flex-direction: column; }
+.hero-temp { font-size: 4rem; font-weight: 800; letter-spacing: -0.04em; line-height: 1.05; }
+.hero-feels { color: rgba(255, 255, 255, 0.85); font-size: 0.92rem; }
+.hero-desc { margin: 4px 0 0; font-size: 0.98rem; color: rgba(255, 255, 255, 0.92); }
+.hero-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 14px; }
+.chip {
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  backdrop-filter: blur(6px);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
 .hero-details { list-style: none; margin: 0; padding: 0; }
 .hero-details li {
-  padding: 5px 0;
-  border-top: 1px solid var(--border);
+  padding: 6px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.18);
   font-size: 0.9rem;
-  color: var(--muted);
+  color: rgba(255, 255, 255, 0.85);
 }
-.hero-details li strong { color: var(--text); }
+.hero-details li strong { color: #fff; }
+
 
 /* ── Radar-kaart ────────────────────────────────────── */
 .radar-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
@@ -372,3 +402,76 @@ main { max-width: 1180px; margin: 0 auto; padding: 20px; }
   .nav-tabs { order: 3; width: 100%; overflow-x: auto; }
   .live-clock { display: none; }
 }
+
+/* ── Zon-boog ─────────────────────────────────── */
+.sun-card canvas { width: 100%; display: block; }
+.sun-times { display: flex; justify-content: space-between; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+.sun-times > div { display: flex; flex-direction: column; gap: 2px; }
+.sun-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 700; }
+.sun-times strong { font-size: 0.98rem; }
+
+/* ── 7-daagse strip ───────────────────────────── */
+.week-strip { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.week-cell {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 4px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+.week-cell:hover { border-color: var(--accent); background: var(--accent-soft); transform: translateY(-2px); }
+.week-cell.today { border-color: var(--accent); background: var(--accent-soft); }
+.week-cell .w-day { font-size: 0.72rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.week-cell .w-icon svg { width: 28px; height: 28px; margin: 4px 0 2px; }
+.week-cell .w-precip { font-size: 0.68rem; color: var(--accent); min-height: 0.9rem; font-weight: 600; }
+.week-cell .w-temp { display: flex; justify-content: center; gap: 6px; font-size: 0.85rem; margin-top: 2px; }
+.week-cell .w-temp strong { color: var(--text); }
+.week-cell .w-temp span { color: var(--muted); }
+
+/* ── Radar-besturing ──────────────────────────── */
+.radar-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: var(--accent-soft);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.btn-play {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+.btn-play:hover { background: #1d4ed8; }
+.btn-play:active { transform: scale(0.94); }
+#radar-slider { flex: 1; accent-color: var(--accent); cursor: pointer; }
+.radar-time { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 0.85rem; min-width: 92px; text-align: right; }
+.radar-legend { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
+.radar-legend .lg { width: 26px; height: 10px; border-radius: 3px; display: inline-block; }
+.lg-1 { background: #a5f3fc; }
+.lg-2 { background: #38bdf8; }
+.lg-3 { background: #22c55e; }
+.lg-4 { background: #facc15; }
+.lg-5 { background: #ef4444; }
+
+/* ── Polish: overgangen en hover ──────────────── */
+.card { transition: box-shadow 0.2s ease, transform 0.2s ease; }
+.card:hover { box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08), 0 12px 32px rgba(15, 23, 42, 0.09); }
+.nav-tab { transition: background 0.15s ease, color 0.15s ease; }
+.nav-tab:hover { background: var(--accent-soft); color: var(--accent); }
+.hour-cell { transition: border-color 0.15s ease, background 0.15s ease; }
+.hour-cell:hover { border-color: var(--accent); }
+.btn-primary, .btn-secondary, .btn-play { transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.1s ease; }
+.search-result { transition: background 0.12s ease; }
+.day-row { transition: background 0.12s ease; }
+.week-cell, .hour-cell { scroll-snap-align: start; }

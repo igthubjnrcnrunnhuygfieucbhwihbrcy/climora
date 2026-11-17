@@ -135,7 +135,7 @@
   /* ── 15-minuten-nowcast (voor RainNowcast) ─────────── */
   async function fetchMinutely15(lat, lon) {
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
-      `&minutely_15=temperature_2m,apparent_temperature,weather_code,precipitation,precipitation_probability,wind_speed_10m` +
+      `&minutely_15=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,precipitation,precipitation_probability,wind_speed_10m,wind_gusts_10m,cloud_cover` +
       `&timezone=auto&forecast_days=3`;
     const data = await jfetch(url);
     const m = data.minutely_15 || {};
@@ -155,6 +155,12 @@
         precip: m.precipitation ? m.precipitation[i] : 0,
         precipProb: m.precipitation_probability ? m.precipitation_probability[i] : 0,
         wind: m.wind_speed_10m ? m.wind_speed_10m[i] : 0,
+        gusts: m.wind_gusts_10m ? m.wind_gusts_10m[i] : null,
+        humidity: m.relative_humidity_2m ? m.relative_humidity_2m[i] : null,
+        cloud: m.cloud_cover ? m.cloud_cover[i] : null,
+        windDir: null,
+        visibility: null,
+        pressure: null,
       });
       if (out.length >= 48) break;
     }
@@ -164,7 +170,7 @@
   /* ── Uurdata (48 uur) ──────────────────────────────── */
   async function fetchHourly(lat, lon) {
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
-      `&hourly=temperature_2m,apparent_temperature,precipitation_probability,precipitation,weather_code,wind_speed_10m,wind_gusts_10m` +
+      `&hourly=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation_probability,precipitation,weather_code,cloud_cover,visibility,wind_speed_10m,wind_direction_10m,wind_gusts_10m,surface_pressure` +
       `&timezone=auto&forecast_days=3&models=best_match`;
     const data = await jfetch(url);
     const h = data.hourly || {};
@@ -184,7 +190,12 @@
         precip: h.precipitation[i],
         code: h.weather_code[i],
         wind: h.wind_speed_10m[i],
+        windDir: h.wind_direction_10m ? h.wind_direction_10m[i] : null,
         gusts: h.wind_gusts_10m ? h.wind_gusts_10m[i] : null,
+        humidity: h.relative_humidity_2m ? h.relative_humidity_2m[i] : null,
+        cloud: h.cloud_cover ? h.cloud_cover[i] : null,
+        visibility: h.visibility ? h.visibility[i] : null,
+        pressure: h.surface_pressure ? h.surface_pressure[i] : null,
       });
       if (out.length >= 48) break;
     }

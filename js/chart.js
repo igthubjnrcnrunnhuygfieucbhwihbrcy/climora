@@ -90,6 +90,20 @@
       ctx.lineWidth = 2;
       ctx.stroke();
     };
+    /* Neerslagstaven (24-uursweergave) */
+    const hasPrecip = points.some(p => p.precip != null && p.precip > 0);
+    if (hasPrecip) {
+      const maxP = Math.max(...points.map(p => p.precip || 0));
+      const barW = Math.max(2, iw / points.length - 2);
+      for (let i = 0; i < points.length; i++) {
+        const p = points[i].precip || 0;
+        if (p <= 0) continue;
+        const bh = Math.max(3, (p / maxP) * ih * 0.35);
+        ctx.fillStyle = "rgba(96,165,250,0.45)";
+        ctx.fillRect(x(i) - barW / 2, padT + ih - bh, barW, bh);
+      }
+    }
+
     /* Enkele reeks (24-uursweergave): vulling onder de lijn */
     const single = points.every(p => p.tmin == null);
     if (single) {
@@ -165,5 +179,55 @@
     ctx.fillText(Math.round(lo) + "°", 4, yT(lo) + 3);
   }
 
-  window.ClimoraChart = { drawTempChart, drawHourlyChart };
+  /* Zonboog: zonsopgang tot zonsondergang met huidige zonnestand */
+  function drawSunArc(canvas, riseMin, setMin, nowMin) {
+    const { ctx, width, height } = setupCanvas(canvas);
+    ctx.clearRect(0, 0, width, height);
+    if (riseMin == null || setMin == null || setMin <= riseMin) return;
+
+    const padX = 18, padT = 16, padB = 22;
+    const iw = width - padX * 2, ih = height - padT - padB;
+    const baseY = padT + ih;
+
+    ctx.strokeStyle = "#e2e8f0";
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(padX, baseY); ctx.lineTo(width - padX, baseY); ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(padX, baseY);
+    ctx.quadraticCurveTo(width / 2, padT - ih * 0.55, width - padX, baseY);
+    ctx.strokeStyle = "#cbd5e1";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    const now = nowMin != null ? Math.min(Math.max(nowMin, riseMin), setMin) : riseMin;
+    const t = (now - riseMin) / (setMin - riseMin);
+    const px = padX + t * iw;
+    const py = baseY - (1 - Math.pow(2 * t - 1, 2)) * ih;
+
+    ctx.beginPath();
+    ctx.moveTo(padX, baseY);
+    ctx.quadraticCurveTo(width / 2, padT - ih * 0.55, px, py);
+    ctx.lineTo(px, baseY);
+    ctx.closePath();
+    ctx.fillStyle = "rgba(245,158,11,0.12)";
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(px, py, 6, 0, Math.PI * 2);
+    ctx.fillStyle = "#f59e0b";
+    ctx.fill();
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.fillStyle = "#64748b";
+    ctx.font = "10px system-ui";
+    ctx.fillText("0 uur", padX, height - 6);
+    const lbl = Math.round((setMin - riseMin) / 60 * 10) / 10 + " uur";
+    ctx.fillText(lbl, width / 2 - 14, height - 6);
+    ctx.fillText("24 uur", width - padX - 28, height - 6);
+  }
+
+  window.ClimoraChart = { drawTempChart, drawHourlyChart, drawSunArc };
 })();

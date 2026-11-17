@@ -252,10 +252,24 @@
     verdict.textContent = I18N().t(verdictKey, { loc: loc.name });
     verdict.className = "hero-verdict" + (score < 7 ? (score >= 4 ? " moderate" : " bad") : "");
 
+    const heroCode = current ? current.code : d0.code;
+    const dayNow = isDayNow(d0);
     $("hero-temp").textContent = current && current.temp != null ? `${u.temp(current.temp)}${u.tempUnit}` : `${u.temp(d0.tmax)}${u.tempUnit}`;
     const feelsNow = current && current.feelsLike != null ? current.feelsLike : d0.tmax != null && d0.tmin != null ? (d0.tmax + d0.tmin) / 2 : null;
     $("hero-feels").textContent = feelsNow != null ? I18N().t("feels_temp", { v: `${u.temp(feelsNow)}${u.tempUnit}` }) : "";
-    $("hero-desc").textContent = I18N().weatherLabel(current ? current.code : d0.code);
+    $("hero-desc").textContent = I18N().weatherLabel(heroCode);
+
+    /* Weericoon + dynamische hemel-achtergrond */
+    $("hero-icon").innerHTML = window.ClimoraIcons.svg(heroCode, dayNow);
+    $("hero-card").className = "hero-card " + skyClass(heroCode, dayNow);
+
+    /* Snelle chips: max/min, vochtigheid, wind */
+    const chips = [];
+    if (d0.tmax != null) chips.push(`⬆ ${u.temp(d0.tmax)}${u.tempUnit}`);
+    if (d0.tmin != null) chips.push(`⬇ ${u.temp(d0.tmin)}${u.tempUnit}`);
+    if (current && current.humidity != null) chips.push(`💧 ${Math.round(current.humidity)}%`);
+    if (current && current.wind != null) chips.push(`💨 ${u.wind(current.wind)} ${u.windUnit}`);
+    $("hero-chips").innerHTML = chips.map(c => `<span class="chip">${escapeHtml(c)}</span>`).join("");
 
     /* Droog-tot-berekening uit 15-min-nowcast */
     const dryInfo = computeDryUntil();
@@ -284,8 +298,28 @@
     /* Snel overzicht */
     renderOverview(d0, current);
 
-    /* 24 uur */
+    /* 24 uur + zon + weekstrip */
     renderHours24();
+    renderSun(d0);
+    renderWeek();
+  }
+
+  function isDayNow(d0) {
+    const parse = iso => iso ? parseInt(iso.slice(11, 13), 10) * 60 + parseInt(iso.slice(14, 16), 10) : null;
+    const now = new Date();
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    const rise = parse(d0.sunrise), set = parse(d0.sunset);
+    if (rise == null || set == null) return nowMin >= 7 * 60 && nowMin < 20 * 60;
+    return nowMin >= rise && nowMin < set;
+  }
+
+  function skyClass(code, day) {
+    if (!day) return "sky-night";
+    if (code === 0 || code === 1) return "sky-clear";
+    if (code <= 48) return "sky-cloudy";
+    if (code <= 67 || (code >= 80 && code < 95)) return "sky-rain";
+    if (code >= 95) return "sky-storm";
+    return "sky-cloudy";
   }
 
   function computeDryUntil() {
@@ -375,8 +409,8 @@
         <div class="h-precip">${s.precipProb != null ? Math.round(s.precipProb) + "%" : ""}</div>
       </div>`).join("");
 
-    /* Grafiek: blauwe lijn, piek-onderschrift */
-    const points = slots.map(s => ({ tmax: s.temp, tmin: null, p10: null, p90: null, label: s.timeLabel }));
+    /* Grafiek: blauwe lijn + neerslagstaven, piek-onderschrift */
+    const points = slots.map(s => ({ tmax: s.temp, tmin: null, p10: null, p90: null, precip: s.precip, label: s.timeLabel }));
     window.ClimoraChart.drawTempChart($("hourly-chart"), points, { light: true });
 
     let peakI = 0;
@@ -386,6 +420,39 @@
       ? I18N().t("chart_caption", { loc: loc.name, peak: u.temp(peak.tmax), time: peak.label })
       : "";
     $("chart-local").textContent = I18N().t("chart_local", { loc: loc.name });
+  }
+
+  /* ── Zon-boog ───────────────────────────────── */
+  function renderSun(d0) {
+    const parse = iso => iso ? parseInt(iso.slice(11, 13), 10) * 60 + parseInt(iso.slice(14, 16), 10) : null;
+    const rise = parse(d0.sunrise), set = parse(d0.sunset);
+    const now = new Date();
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    const fmt = min => min != null ? `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}` : "—";
+    $("h-sun").textContent = I18N().t("sun_title");
+    $("sun-rise-label").textContent = I18N().t("sun_rise");
+    $("sun-set-label").textContent = I18N().t("sun_set");
+    $("sun-length-label").textContent = I18N().t("sun_length");
+    $("sun-rise").textContent = fmt(rise);
+    $("sun-set").textContent = fmt(set);
+    $("sun-length").textContent = rise != null && set != null && set > rise
+      ? I18N().t("hours_short", { n: Math.floor((set - rise) / 60), m: (set - rise) % 60 }) : "—";
+    window.ClimoraChart.drawSunArc($("sun-canvas"), rise, set, nowMin);
+  }
+
+  /* ── 7-daagse strip ─────────────────────────── */
+  function renderWeek() {
+    const u = state.units;
+    const week = state.daily.slice(0, 7);
+    if (!week.length) return;
+    $("h-week").textContent = I18N().t("week_title");
+    $("week-strip").innerHTML = week.map((d, i) => `
+      <div class="week-cell${i === 0 ? " today" : ""}" data-idx="${i}">
+        <div class="w-day">${escapeHtml(dayName(i))}</div>
+        <div class="w-icon">${window.ClimoraIcons.svg(d.code, true)}</div>
+        <div class="w-precip">${d.precipProb != null && d.precipProb > 0 ? Math.round(d.precipProb) + "%" : ""}</div>
+        <div class="w-temp"><strong>${d.tmax != null ? u.temp(d.tmax) : "—"}°</strong><span>${d.tmin != null ? u.temp(d.tmin) : "—"}°</span></div>
+      </div>`).join("");
   }
 
   /* ── Pagina: 40 dagen ──────────────────────────────── */
@@ -529,6 +596,12 @@
     $("tab-maker").textContent = t("nav_maker");
     $("tab-about").textContent = t("nav_about");
     $("h-overview").textContent = t("overview_title");
+    $("h-sun").textContent = t("sun_title");
+    $("sun-rise-label").textContent = t("sun_rise");
+    $("sun-set-label").textContent = t("sun_set");
+    $("sun-length-label").textContent = t("sun_length");
+    $("h-week").textContent = t("week_title");
+    $("radar-legend-label").textContent = t("radar_legend_label");
     $("h-radar").textContent = t("radar_title", { loc: loc.name });
     $("h-about").textContent = t("about_title");
     $("about-text").textContent = t("about_text");
@@ -557,6 +630,9 @@
     if (page === "radar" && state.location) {
       window.ClimoraRadar.init(state.location.lat, state.location.lon, "radar-map", 8);
     }
+    if (page === "home" && state.location) {
+      window.ClimoraRadar.init(state.location.lat, state.location.lon, "radar-mini", 8);
+    }
   }
 
   /* ── Events ────────────────────────────────────────── */
@@ -567,6 +643,9 @@
     });
     $("brand-loc").addEventListener("click", () => switchPage("home"));
     $("btn-open-radar").addEventListener("click", () => switchPage("radar"));
+    $("week-strip").addEventListener("click", e => {
+      if (e.target.closest(".week-cell")) switchPage("days40");
+    });
 
     $("btn-toggle-long").addEventListener("click", () => {
       state.showLongRange = !state.showLongRange;
