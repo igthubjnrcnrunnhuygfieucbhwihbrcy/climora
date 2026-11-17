@@ -18,7 +18,15 @@ cd climora
 python3 -m http.server 8080
 ```
 
-Open daarna **http://localhost:8080**. Werkt met elke statische webserver:
+Open daarna **http://localhost:8080**.
+
+**Eerst proeftesten?** Eén commando controleert alles (JS-syntaxis, alle bestanden, AI-logica):
+
+```bash
+bash check-local.sh
+```
+
+Werkt met elke statische webserver:
 
 - **[Nginx](https://nginx.org/en/docs/beginners_guide.html#static)** — zet de map als `root` in je `server`-blok
 - **[Caddy](https://caddyserver.com/docs/)** — `climora.jouwdomein.nl { root * /pad/naar/climora; file_server }` (HTTPS automatisch)
