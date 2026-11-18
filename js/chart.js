@@ -180,7 +180,11 @@
   }
 
   /* Zonboog: zonsopgang tot zonsondergang met huidige zonnestand */
-  function drawSunArc(canvas, riseMin, setMin, nowMin) {
+  function drawSunArc(canvas, riseMin, setMin, nowMin, opts) {
+    const dark = opts && opts.light === false;
+    const cTrack = dark ? "#3a4a63" : "#cbd5e1";
+    const cAxis = dark ? "#2b3a52" : "#e2e8f0";
+    const cLabel = dark ? "#9aabc2" : "#64748b";
     const { ctx, width, height } = setupCanvas(canvas);
     ctx.clearRect(0, 0, width, height);
     if (riseMin == null || setMin == null || setMin <= riseMin) return;
@@ -189,14 +193,14 @@
     const iw = width - padX * 2, ih = height - padT - padB;
     const baseY = padT + ih;
 
-    ctx.strokeStyle = "#e2e8f0";
+    ctx.strokeStyle = cAxis;
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(padX, baseY); ctx.lineTo(width - padX, baseY); ctx.stroke();
 
     ctx.beginPath();
     ctx.moveTo(padX, baseY);
     ctx.quadraticCurveTo(width / 2, padT - ih * 0.55, width - padX, baseY);
-    ctx.strokeStyle = "#cbd5e1";
+    ctx.strokeStyle = cTrack;
     ctx.lineWidth = 2;
     ctx.stroke();
 
@@ -221,7 +225,7 @@
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    ctx.fillStyle = "#64748b";
+    ctx.fillStyle = cLabel;
     ctx.font = "10px system-ui";
     ctx.fillText("0 uur", padX, height - 6);
     const lbl = Math.round((setMin - riseMin) / 60 * 10) / 10 + " uur";

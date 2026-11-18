@@ -34,6 +34,9 @@
     return fmtDate(dateStr, { weekday: "short", day: "numeric", month: "short" });
   }
   function show(id, on) { $(id).classList.toggle("hidden", !on); }
+  function themeIsDark() {
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  }
   function escapeHtml(s) {
     return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   }
@@ -62,11 +65,12 @@
   }
   function aqiInfo(aqi) {
     if (aqi == null) return null;
-    if (aqi <= 20) return { label: I18N().t("aqiGood") || I18N().t("aqi_good"), cls: "good" };
+    if (aqi <= 20) return { label: I18N().t("aqiGood"), cls: "good" };
     if (aqi <= 40) return { label: I18N().t("aqiFair"), cls: "good" };
     if (aqi <= 60) return { label: I18N().t("aqiModerate"), cls: "" };
     if (aqi <= 80) return { label: I18N().t("aqiPoor"), cls: "warn" };
-    return { label: I18N().t("aqiVeryPoor"), cls: "bad" };
+    if (aqi <= 100) return { label: I18N().t("aqiVeryPoor"), cls: "bad" };
+    return { label: I18N().t("aqiExtremelyPoor"), cls: "bad" };
   }
   function outdoorScore(day) {
     if (!day) return null;
@@ -143,7 +147,8 @@
     }
 
     setLoadingStep("load_models");
-    const base = models[0].daily;
+    const baseModel = models.find(m => m.daily && m.daily.time && m.daily.sunrise && m.daily.sunrise.length) || models[0];
+    const base = baseModel.daily;
     const nDays = Math.min(16, base.time.length);
     const daily = [];
     for (let i = 0; i < nDays; i++) {
@@ -160,7 +165,8 @@
         }
         if (d.temperature_2m_min[i] != null) perVar.tmin.push([d.temperature_2m_min[i] - Captain().getBias(m.modelId, lead, "tmin"), w]);
         if (d.precipitation_sum[i] != null) perVar.precip.push([Math.max(0, d.precipitation_sum[i] - Captain().getBias(m.modelId, lead, "precip")), w]);
-        if (d.pressure_msl && d.pressure_msl[i] != null) perVar.pressure.push(d.pressure_msl[i]);
+        const pressureArr = d.pressure_msl_mean || d.pressure_msl;
+        if (pressureArr && pressureArr[i] != null) perVar.pressure.push(pressureArr[i]);
       }
       const tmax = wmean(perVar.tmax);
       const spreadLo = pct(perVar.tmaxAll, 0.1);
@@ -411,7 +417,7 @@
 
     /* Grafiek: blauwe lijn + neerslagstaven, piek-onderschrift */
     const points = slots.map(s => ({ tmax: s.temp, tmin: null, p10: null, p90: null, precip: s.precip, label: s.timeLabel }));
-    window.ClimoraChart.drawTempChart($("hourly-chart"), points, { light: true });
+    window.ClimoraChart.drawTempChart($("hourly-chart"), points, { light: !themeIsDark() });
 
     let peakI = 0;
     points.forEach((p, i) => { if (p.tmax != null && (points[peakI].tmax == null || p.tmax > points[peakI].tmax)) peakI = i; });
@@ -437,7 +443,7 @@
     $("sun-set").textContent = fmt(set);
     $("sun-length").textContent = rise != null && set != null && set > rise
       ? I18N().t("hours_short", { n: Math.floor((set - rise) / 60), m: (set - rise) % 60 }) : "—";
-    window.ClimoraChart.drawSunArc($("sun-canvas"), rise, set, nowMin);
+    window.ClimoraChart.drawSunArc($("sun-canvas"), rise, set, nowMin, { light: !themeIsDark() });
   }
 
   /* ── 7-daagse strip ─────────────────────────── */
@@ -448,11 +454,31 @@
     $("h-week").textContent = I18N().t("week_title");
     $("week-strip").innerHTML = week.map((d, i) => `
       <div class="week-cell${i === 0 ? " today" : ""}" data-idx="${i}">
-        <div class="w-day">${escapeHtml(dayName(i))}</div>
+        <div class="w-day">${escapeHtml(dayName(d.date, i))}</div>
         <div class="w-icon">${window.ClimoraIcons.svg(d.code, true)}</div>
         <div class="w-precip">${d.precipProb != null && d.precipProb > 0 ? Math.round(d.precipProb) + "%" : ""}</div>
         <div class="w-temp"><strong>${d.tmax != null ? u.temp(d.tmax) : "—"}°</strong><span>${d.tmin != null ? u.temp(d.tmin) : "—"}°</span></div>
       </div>`).join("");
+  }
+
+  /* ── Nowcast-strip op de radarpagina ───────── */
+  function renderNowcast() {
+    const u = state.units;
+    const slots = (state.min15.length ? state.min15 : []).slice(0, 32);
+    if (!slots.length) return;
+    $("nowcast-title").textContent = I18N().t("nowcast_title");
+    $("nowcast-sub").textContent = I18N().t("nowcast_sub");
+    $("nowcast-strip").innerHTML = slots.map((s, i) => {
+      const mm = s.precip || 0;
+      const drizzle = mm > 0 && mm <= 0.4;
+      const lvl = mm <= 0.4 ? "nc-1" : mm <= 1.5 ? "nc-2" : mm <= 4 ? "nc-3" : "nc-4";
+      return `<div class="nc-cell${i === 0 ? " now" : ""}${mm > 0 ? "" : " dry"}">
+        <div class="h-time">${i === 0 ? escapeHtml(I18N().t("now_label")) : escapeHtml(s.timeLabel)}</div>
+        <div class="nc-bar ${lvl}"></div>
+        <div class="nc-mm">${mm > 0 ? u.precip(mm) + " mm" : "—"}</div>
+        <div class="nc-kind">${mm > 0 ? escapeHtml(drizzle ? I18N().t("drizzle_label") : I18N().t("rain_light")) : ""}</div>
+      </div>`;
+    }).join("");
   }
 
   /* ── Pagina: 40 dagen ──────────────────────────────── */
@@ -629,6 +655,7 @@
     document.querySelectorAll(".nav-tab").forEach(b => b.classList.toggle("active", b.dataset.page === page));
     if (page === "radar" && state.location) {
       window.ClimoraRadar.init(state.location.lat, state.location.lon, "radar-map", 8);
+      renderNowcast();
     }
     if (page === "home" && state.location) {
       window.ClimoraRadar.init(state.location.lat, state.location.lon, "radar-mini", 8);
@@ -721,6 +748,14 @@
     wireEvents();
     tickClock();
     setInterval(tickClock, 30000);
+    if (window.matchMedia) {
+      try {
+        window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+          if (state.daily.length) renderHours24();
+          if (state.daily.length) renderSun(state.daily[0]);
+        });
+      } catch { /* oudere browsers */ }
+    }
     try {
       if (!localStorage.getItem("climora_cookie_accepted")) show("cookie-notice", true);
     } catch { /* negeer */ }

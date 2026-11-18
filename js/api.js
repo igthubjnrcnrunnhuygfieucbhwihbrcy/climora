@@ -64,7 +64,7 @@
     { id: "metno_seamless", name: "MET Norway", weight: 0.20 },
   ];
 
-  const DAILY_VARS = "weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_direction_10m_dominant,pressure_msl,sunrise,sunset";
+  const DAILY_VARS = "weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_direction_10m_dominant,pressure_msl_mean,sunrise,sunset";
 
   async function fetchOmModel(lat, lon, modelId) {
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
@@ -267,9 +267,9 @@
   /* ── RainViewer (radar) ────────────────────────────── */
   async function fetchRadarFrames() {
     const d = await jfetch("https://api.rainviewer.com/public/weather-maps.json");
-    const past = (d.radar && d.radar.past) || [];
-    const nowcast = (d.radar && d.radar.nowcast) || [];
-    return { host: `${location.protocol}//${d.host}`, path: d.path || "", frames: past.concat(nowcast.slice(0, 1)) };
+    const past = ((d.radar && d.radar.past) || []).map(f => ({ ...f, kind: "past" }));
+    const nowcast = ((d.radar && d.radar.nowcast) || []).slice(0, 2).map(f => ({ ...f, kind: "nowcast" }));
+    return { host: `https://${d.host || "tilecache.rainviewer.com"}`.replace("https://https://", "https://"), frames: past.concat(nowcast) };
   }
 
   window.ClimoraAPI = {

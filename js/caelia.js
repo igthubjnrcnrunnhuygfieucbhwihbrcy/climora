@@ -239,6 +239,27 @@
       });
     }
 
+    /* Continuïteit: gladde overgang van dag 16 (modeldata) naar de CAELIA-horizon.
+       De anomalie van de laatste modeldag vervaagt proportioneel over de volgende
+       5 dagen, zodat één doorlopende verwachting 0–40 zonder sprong ontstaat. */
+    const lastDoy = Math.min(365, dayOfYear(new Date(last.date + "T12:00:00Z")));
+    const lastProf = climateProfile[lastDoy];
+    if (lastProf && last.tmax != null) {
+      const anomMax = last.tmax - lastProf.tmaxMean;
+      const anomMin = last.tmin != null ? last.tmin - lastProf.tminMean : 0;
+      for (let i = 0; i < Math.min(5, days.length); i++) {
+        const w = 0.55 * (1 - i / 5);
+        const decay = Math.pow(0.85, i + 1);
+        const doy2 = Math.min(365, dayOfYear(new Date(days[i].date + "T12:00:00Z")));
+        const prof2 = climateProfile[doy2];
+        if (!prof2) continue;
+        days[i].tmax = Math.round((days[i].tmax * (1 - w) + (prof2.tmaxMean + anomMax * decay) * w) * 10) / 10;
+        days[i].tmin = Math.round((days[i].tmin * (1 - w) + (prof2.tminMean + anomMin * decay) * w) * 10) / 10;
+        const lastProb = last.precipProb != null ? last.precipProb : days[i].precipProb;
+        days[i].precipProb = Math.round(clamp(days[i].precipProb * (1 - w * 0.5) + lastProb * w * 0.5, 5, 95));
+      }
+    }
+
     return { days, analogYears: analogs.years, regimes: regimesSeen };
   }
 

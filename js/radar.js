@@ -105,9 +105,10 @@
   function showFrame(inst, elementId) {
     const f = inst.frames[inst.idx];
     if (!f || !inst.map || !inst.data) return;
-    const url = `${inst.data.host}${inst.data.path}/radar/${f.path}/256/{z}/{x}/{y}/4/1_1.png`;
+    const isNowcast = f.kind === "nowcast" || (f.time > Date.now() / 1000);
+    const url = `${inst.data.host}${f.path}/256/{z}/{x}/{y}/4/1_1.png`;
     if (inst.radarLayer) inst.map.removeLayer(inst.radarLayer);
-    inst.radarLayer = L.tileLayer(url, { opacity: 0.75, maxZoom: 12 }).addTo(inst.map);
+    inst.radarLayer = L.tileLayer(url, { opacity: isNowcast ? 0.55 : 0.8, maxZoom: 12 }).addTo(inst.map);
     const el = document.getElementById("radar-time");
     if (el) {
       const t = new Date(f.time * 1000);
