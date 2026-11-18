@@ -500,3 +500,16 @@ main { max-width: 1180px; margin: 0 auto; padding: 20px; }
 
 /* ── Thema-consistentie: nacht onderscheiden van storm ── */
 .sky-night { background: linear-gradient(135deg, #1b1f3a 0%, #23284f 55%, #39406e 100%); }
+
+/* ── AI-modellen en versies (Beheer) ─────────────────────────────── */
+.model-row { padding: 12px 0; border-top: 1px solid var(--border); }
+.model-row:first-child { border-top: none; }
+.m-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.m-name { font-weight: 600; }
+.m-sub { font-size: 0.76rem; color: var(--muted); font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; margin-top: 2px; }
+.m-desc { font-size: 0.86rem; margin-top: 4px; line-height: 1.45; }
+.m-chain { font-size: 0.74rem; color: var(--muted); margin-top: 6px; line-height: 1.5; word-break: break-word; }
+.st-badge { font-size: 0.68rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; letter-spacing: 0.02em; }
+.st-active { background: rgba(22, 163, 74, 0.12); color: var(--good); }
+.st-context { background: var(--accent-soft); color: var(--accent); }
+.st-off { background: rgba(100, 116, 139, 0.12); color: var(--muted); }

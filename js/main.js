@@ -635,6 +635,7 @@
       <p><strong>${escapeHtml(I18N().t("regime_title"))}:</strong> ${escapeHtml(regimes || "—")}</p>
       <p class="muted small">${state.extended.length} ${escapeHtml(I18N().t("days_word"))} · ${escapeHtml(I18N().t("model_spread"))}</p>`;
     renderBrain();
+    renderModels();
 
     /* Luchtkwaliteit-detail */
     const aq = state.air;
@@ -680,6 +681,15 @@
 
   function brainStat(label, value) {
     return `<div class="air-item"><div class="label">${escapeHtml(label)}</div><div class="value">${escapeHtml(value)}</div></div>`;
+  }
+
+  function renderModels() {
+    const M = window.ClimoraModels;
+    if (!M) return;
+    const t = (k, v) => I18N().t(k, v);
+    t.lang = I18N().lang;
+    $("h-models").textContent = I18N().t("h_models");
+    $("models-list").innerHTML = M.render(t);
   }
 
   /* ── Statische teksten ─────────────────────────────── */
