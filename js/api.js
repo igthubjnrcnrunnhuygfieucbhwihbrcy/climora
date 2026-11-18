@@ -217,7 +217,7 @@
     const fmt = d => d.toISOString().slice(0, 10);
     const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}` +
       `&start_date=${fmt(start)}&end_date=${fmt(end)}` +
-      `&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto`;
+      `&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max&timezone=auto`;
     const data = await jfetch(url);
     return data.daily || null;
   }

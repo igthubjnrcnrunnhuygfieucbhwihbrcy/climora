@@ -119,6 +119,7 @@
     setLoadingStep("load_captain");
     try { await Captain().verifyAndLearn(locKey, loc.lat, loc.lon); } catch { /* leren mag nooit breken */ }
     const { weights, learned } = Captain().computeWeights();
+    state.learned = learned;
 
     setLoadingStep("load_sources");
     const [modelsRes, metNoRes, min15Res, hourlyRes, airRes, warningsRes] = await Promise.allSettled([
@@ -190,8 +191,10 @@
     state.daily = daily;
 
     setLoadingStep("load_longterm");
+    let brainArchive = null;
     try {
       const archive = await API().fetchArchive(loc.lat, loc.lon);
+      brainArchive = archive;
       const profile = Caelia().buildClimateProfile(archive);
       const ext = Caelia().extendTo40(daily, profile, archive, Captain().hasLearning());
       state.extended = ext.days;
@@ -209,6 +212,40 @@
     state.warnings = warningsRes.status === "fulfilled" ? warningsRes.value : [];
 
     renderAll(learned);
+
+    /* CAELIA v9 Neural Brain: eigen MLP-model (12\u219232\u219224\u21922) naast het ensemble */
+    if (brainArchive && state.extended.length) {
+      startCaeliaBrain(brainArchive);
+    } else {
+      const st = $("brain-status");
+      st.textContent = I18N().t("brain_no_data");
+      show("brain-status", true);
+    }
+  }
+
+  function startCaeliaBrain(archive) {
+    const loc = state.location;
+    try {
+      Caelia().startCaeliaBrain({
+        lat: loc.lat, lon: loc.lon,
+        daily: state.daily, extended: state.extended, archive,
+      }, ev => {
+        const st = $("brain-status");
+        if (ev.phase === "training" || ev.phase === "refining") {
+          st.textContent = (ev.phase === "training" ? I18N().t("brain_training") + " " : "") + (ev.message || "");
+          show("brain-status", true);
+        } else if (ev.phase === "ready") {
+          if (Array.isArray(ev.extended) && ev.extended.length) state.extended = ev.extended;
+          state.caeliaBrain = ev.report || null;
+          show("brain-status", false);
+          renderDays40();
+          renderMaker(state.learned);
+        } else {
+          st.textContent = I18N().t("brain_no_data");
+          show("brain-status", true);
+        }
+      });
+    } catch { /* brein nooit blokkeren */ }
   }
 
   /* ── Render: alles ─────────────────────────────────── */
@@ -597,6 +634,7 @@
       <p><strong>${escapeHtml(I18N().t("caelia_analogs"))}:</strong> ${escapeHtml((info.analogYears || []).join(", ") || "—")}</p>
       <p><strong>${escapeHtml(I18N().t("regime_title"))}:</strong> ${escapeHtml(regimes || "—")}</p>
       <p class="muted small">${state.extended.length} ${escapeHtml(I18N().t("days_word"))} · ${escapeHtml(I18N().t("model_spread"))}</p>`;
+    renderBrain();
 
     /* Luchtkwaliteit-detail */
     const aq = state.air;
@@ -610,6 +648,38 @@
       { label: "UV", value: aq.uv_index != null ? String(Math.round(aq.uv_index * 10) / 10) : "—" },
     ];
     $("air-content").innerHTML = `<div class="air-grid">${items.map(i => `<div class="air-item"><div class="label">${escapeHtml(i.label)}</div><div class="value">${escapeHtml(i.value)}</div></div>`).join("")}</div>`;
+  }
+
+  function renderBrain() {
+    const r = state.caeliaBrain;
+    const u = state.units;
+    if (!r) { show("brain-report", false); show("brain-status", false); return; }
+    const traceHtml = (r.trace || []).length
+      ? r.trace.map(tr => `<div class="insight-item"><strong>${escapeHtml(fmtDate(tr.date, { day: "numeric", month: "short" }))}</strong> — ${escapeHtml(tr.text)}</div>`).join("")
+      : `<p class="muted small">—</p>`;
+    const corrHtml = (r.corrections || []).length
+      ? r.corrections.map(c => `<div class="insight-item">${escapeHtml(fmtDate(c.date, { day: "numeric", month: "short" }))}: ${u.temp(c.from)}° → <strong>${u.temp(c.to)}°</strong> (${c.delta >= 0 ? "+" : ""}${u.temp(c.delta)}°)</div>`).join("")
+      : `<p class="muted small">—</p>`;
+    $("brain-report").innerHTML = `
+      <h3 class="small muted" style="margin:14px 0 4px">${escapeHtml(I18N().t("brain_title"))}</h3>
+      <p class="muted small">${escapeHtml(I18N().t("brain_ready"))} ${escapeHtml(r.warmStart ? I18N().t("brain_warm", { n: r.sessions }) : I18N().t("brain_fresh"))}</p>
+      <div class="air-grid">
+        ${brainStat(I18N().t("brain_architecture"), r.architecture)}
+        ${brainStat(I18N().t("brain_weights"), String(r.weights))}
+        ${brainStat(I18N().t("brain_patterns"), String(r.patterns))}
+        ${brainStat(I18N().t("brain_rmse"), r.rmseC + " °C")}
+        ${brainStat(I18N().t("brain_sessions"), String(r.sessions))}
+        ${brainStat(I18N().t("brain_thoughts"), String((r.thoughts || []).length))}
+      </div>
+      <h3 class="small muted" style="margin:14px 0 4px">${escapeHtml(I18N().t("brain_trace"))}</h3>
+      ${traceHtml}
+      <h3 class="small muted" style="margin:14px 0 4px">${escapeHtml(I18N().t("regime_title"))}</h3>
+      ${corrHtml}`;
+    show("brain-report", true);
+  }
+
+  function brainStat(label, value) {
+    return `<div class="air-item"><div class="label">${escapeHtml(label)}</div><div class="value">${escapeHtml(value)}</div></div>`;
   }
 
   /* ── Statische teksten ─────────────────────────────── */

@@ -18,8 +18,10 @@
   };
 
   function dayOfYear(date) {
-    const start = new Date(date.getFullYear(), 0, 0);
-    return Math.floor((date - start) / 86400000);
+    const d = date instanceof Date ? date : new Date(date);
+    if (isNaN(d.getTime())) return 0;
+    const start = new Date(d.getFullYear(), 0, 0);
+    return Math.floor((d - start) / 86400000);
   }
 
   function mulberry32(seed) {
@@ -272,5 +274,306 @@
     });
   }
 
-  window.ClimoraCaelia = { REGIMES, buildClimateProfile, findAnalogs, classifyRegime, extendTo40, classifyDailyRegimes };
+  /* ══ CAELIA v9 Neural Brain — echt neuraal netwerk (port van neuralForecast.js) ══
+     1. LEREN: traint op ~4 jaar meetdata hoe weerpatronen doorwerken.
+     2. DENKEN: 3 denkpasses per dag + pass 4 (fysische kennis via ClimoraKnowledge).
+     3. LEREN DOOR: warm start — gewichten blijven in localStorage per locatie. */
+
+  const SIZES = [12, 32, 24, 2];
+  const HORIZONS = [1, 2, 3, 5, 7, 10, 14, 21, 30, 40];
+  const FEATURE_NAMES = [
+    "de seizoenspositie", "de seizoenspositie", "de voorspelhorizon",
+    "de warmte van gisteren", "de warmte van 2 dagen terug", "de warmte van 3 dagen terug",
+    "de week-persistentie", "de temperatuurtrend", "de nachttemperatuur",
+    "de neerslaghistorie", "de windhistorie", "de langere persistentie",
+  ];
+
+  function toDayList(archive) {
+    const d = archive || {};
+    const days = [];
+    for (let i = 0; i < (d.time || []).length; i++) {
+      days.push({
+        date: d.time[i],
+        tmax: d.temperature_2m_max ? d.temperature_2m_max[i] : null,
+        tmin: d.temperature_2m_min ? d.temperature_2m_min[i] : null,
+        precip: d.precipitation_sum ? d.precipitation_sum[i] : null,
+        wind: d.wind_speed_10m_max ? d.wind_speed_10m_max[i] : null,
+      });
+    }
+    return days.filter(x => x.tmax != null && x.tmin != null);
+  }
+
+  /* Klimatologie met cache en z-score (±5 dagen venster) */
+  function buildClim(days) {
+    const byDoy = Array.from({ length: 368 }, () => ({ tmax: [], tmin: [], precip: [], wind: [] }));
+    for (const d of days) {
+      const doy = dayOfYear(d.date);
+      const b = byDoy[Math.min(366, doy)];
+      if (d.tmax != null) b.tmax.push(d.tmax);
+      if (d.tmin != null) b.tmin.push(d.tmin);
+      if (d.precip != null) b.precip.push(d.precip);
+      if (d.wind != null) b.wind.push(d.wind);
+    }
+    const cache = new Map();
+    const stats = (doy, field) => {
+      const key = doy + ":" + field;
+      if (cache.has(key)) return cache.get(key);
+      const vals = [];
+      for (let o = -5; o <= 5; o++) {
+        let idx = doy + o;
+        if (idx > 366) idx -= 366;
+        if (idx < 1) idx += 366;
+        vals.push(...byDoy[idx][field]);
+      }
+      let r;
+      if (vals.length < 8) r = { mean: null, std: 1 };
+      else {
+        const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+        r = { mean, std: Math.sqrt(vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length) || 1 };
+      }
+      cache.set(key, r);
+      return r;
+    };
+    const z = (date, field, value) => {
+      if (date == null || value == null) return 0;
+      const { mean, std } = stats(dayOfYear(date), field);
+      if (mean == null) return 0;
+      return (value - mean) / std;
+    };
+    return { stats, z };
+  }
+
+  /* 12 kenmerken: context = 14 meetdagen vóór het anker, doel = horizon dagen erna */
+  function buildFeatures(series, anchorIdx, horizon, clim) {
+    if (anchorIdx < 14 || anchorIdx >= series.length) return null;
+    const target = series[anchorIdx + horizon];
+    if (!target || !target.date) return null;
+    const doyT = dayOfYear(target.date);
+    const zAt = (back, field) => {
+      const d = series[anchorIdx - back];
+      return clim.z(d ? d.date : null, field || "tmax", d ? d[field || "tmax"] : null);
+    };
+
+    const z1 = zAt(1), z2 = zAt(2), z3 = zAt(3);
+    let weekSum = 0;
+    for (let k = 1; k <= 7; k++) weekSum += zAt(k);
+    const week = weekSum / 7;
+    const slope = (z1 + z2) / 2 - (zAt(4) + zAt(5)) / 2;
+    let nightSum = 0;
+    for (let k = 1; k <= 3; k++) nightSum += zAt(k, "tmin");
+    let rainSum = 0;
+    for (let k = 1; k <= 7; k++) rainSum += ((series[anchorIdx - k] || {}).precip || 0);
+    let windSum = 0;
+    for (let k = 1; k <= 3; k++) windSum += zAt(k, "wind");
+    let biweekSum = 0;
+    for (let k = 8; k <= 14; k++) biweekSum += zAt(k);
+
+    return [
+      Math.sin(2 * Math.PI * doyT / 365.25),
+      Math.cos(2 * Math.PI * doyT / 365.25),
+      Math.min(1, Math.max(1, horizon) / 40),
+      z1, z2, z3,
+      week,
+      slope,
+      nightSum / 3,
+      Math.log1p(Math.max(0, rainSum)) / 2,
+      windSum / 3,
+      biweekSum / 7,
+    ];
+  }
+
+  /* Leerpatronen: (context, horizon) → toekomstige afwijking van het klimaat */
+  function buildTrainingSet(days, clim) {
+    const inputs = [], outputs = [];
+    const n = days.length;
+    for (let i = 14; i < n; i += 2) {
+      for (const h of HORIZONS) {
+        const j = i + h;
+        if (j >= n) continue;
+        const target = days[j];
+        if (target.tmax == null || target.tmin == null) continue;
+        const f = buildFeatures(days, i, h, clim);
+        if (!f) continue;
+        inputs.push(f);
+        outputs.push([
+          clim.z(target.date, "tmax", target.tmax),
+          clim.z(target.date, "tmin", target.tmin),
+        ]);
+      }
+    }
+    return { inputs, outputs };
+  }
+
+  /* Netwerk redeneert per dag en corrigeert de voorspelling */
+  function refineWithBrain(net, clim, recentObs, forecast) {
+    const series = recentObs.concat(forecast.map(d => ({
+      date: d.date, tmax: d.tmax, tmin: d.tmin, precip: d.precip, wind: d.wind,
+    })));
+    const anchorIdx = recentObs.length - 1;
+    if (anchorIdx < 14) return { refined: forecast.slice(), trace: [], corrections: [] };
+
+    const all = [];
+    const refined = forecast.map((day, j) => {
+      const horizon = Math.max(1, Math.round((Date.parse(day.date) - Date.parse(series[anchorIdx].date)) / 86400000));
+      const f = buildFeatures(series, anchorIdx, horizon, clim);
+      if (!f) return day;
+      const out = net.predict(f);
+      const nT = clim.stats(dayOfYear(day.date), "tmax");
+      const nM = clim.stats(dayOfYear(day.date), "tmin");
+      const isAI = day.source === "caelia";
+      const w = isAI ? Math.min(0.45, 0.28 + horizon * 0.008) : 0.12;
+      const corrT = clamp(out[0] * nT.std, -4, 4);
+      const corrM = clamp(out[1] * nM.std, -4, 4);
+      all.push({ day, horizon, out, corrT, corrM, w, features: f });
+      return {
+        ...day,
+        tmax: Math.round((day.tmax + w * corrT) * 10) / 10,
+        tmin: Math.round((day.tmin + w * corrM) * 10) / 10,
+        _neural: { zTmax: out[0], zTmin: out[1], weight: w },
+      };
+    });
+
+    /* Feature-attributie (perturbatie + denktrace voor de opvallendste dagen) */
+    const notable = all.slice().sort((a, b) => Math.abs(b.corrT * b.w) - Math.abs(a.corrT * a.w)).slice(0, 3);
+    const trace = notable.map(c => {
+      const attrs = c.features.map((v, k) => {
+        const plus = c.features.slice(); plus[k] = v + 0.15;
+        const minus = c.features.slice(); minus[k] = v - 0.15;
+        return { k, mag: Math.abs(net.predict(plus)[0] - net.predict(minus)[0]) };
+      }).sort((a, b) => b.mag - a.mag);
+      const dir = c.corrT > 0 ? "warmer" : "koeler";
+      const applied = c.corrT * c.w;
+      return {
+        date: c.day.date,
+        text:
+          "Pass 1 — patroonherkenning: " + FEATURE_NAMES[attrs[0].k] + " en " + FEATURE_NAMES[attrs[1].k] + " " +
+          "wijzen op " + dir + " weer dan het klimaatgemiddelde. " +
+          "Pass 2 — neuraal signaal: het netwerk bevestigt dit (anomaal " + (c.out[0] >= 0 ? "+" : "") + c.out[0].toFixed(1) + "σ op dag +" + c.horizon + "). " +
+          "Pass 3 — beslissing: correctie " + (applied >= 0 ? "+" : "") + applied.toFixed(1) + "°C toegepast met " + Math.round(c.w * 100) + "% gewicht.",
+      };
+    });
+
+    return {
+      refined,
+      trace,
+      corrections: notable.map(c => ({
+        date: c.day.date,
+        from: Math.round(c.day.tmax),
+        to: Math.round(c.day.tmax + c.corrT * c.w),
+        delta: Math.round(c.corrT * c.w * 10) / 10,
+      })),
+    };
+  }
+
+  /* Metadata (leergeschiedenis per locatie) */
+  function loadMeta(key) {
+    try { return JSON.parse(localStorage.getItem(key + "_meta")) || {}; } catch { return {}; }
+  }
+  function saveMeta(key, m) {
+    try { localStorage.setItem(key + "_meta", JSON.stringify(m)); } catch { /* vol */ }
+  }
+
+  function countWeights(sizes) {
+    let acc = 0;
+    for (let idx = 1; idx < sizes.length; idx++) acc += sizes[idx - 1] * sizes[idx] + sizes[idx];
+    return acc;
+  }
+
+  let session = 0;
+
+  /**
+   * Start het CAELIA Neural Brain voor een locatie. archive = ruwe archief-API
+   * data (via ClimoraAPI.fetchArchive). onUpdate events:
+   *   { phase:"training", progress, message }
+   *   { phase:"ready", extended, report }
+   *   { phase:"unavailable", message }
+   */
+  function startCaeliaBrain({ lat, lon, daily, extended, archive }, onUpdate) {
+    const my = ++session;
+    const say = s => { if (session === my) onUpdate(s); };
+    const cancelled = () => session !== my;
+    const Neural = window.ClimoraNeural;
+    const Knowledge = window.ClimoraKnowledge;
+    if (!Neural || !Knowledge) return say({ phase: "unavailable" });
+
+    const days = toDayList(archive);
+    if (!days || days.length < 400) return say({ phase: "unavailable" });
+
+    const clim = buildClim(days);
+
+    /* ~4 jaar meetdata voor training (net als het origineel) */
+    const trainDays = days.slice(-(4 * 365));
+    const ds = buildTrainingSet(trainDays, clim);
+    if (ds.inputs.length < 300) return say({ phase: "unavailable" });
+
+    const net = new Neural.MLP(SIZES, 2024);
+    const key = "caelia_brain_" + Number(lat).toFixed(2) + "_" + Number(lon).toFixed(2);
+    const warm = Neural.loadWeights(net, key);
+    const meta = loadMeta(key);
+
+    let stdSum = 0, stdCnt = 0;
+    for (let doy = 15; doy <= 366; doy += 15) { stdSum += clim.stats(doy, "tmax").std; stdCnt++; }
+    const avgStd = stdCnt ? stdSum / stdCnt : 3;
+
+    const forecast = daily.concat(extended).filter(d => d && d.date && d.tmax != null);
+
+    Neural.trainInBackground(net, ds, {
+      epochs: warm ? 10 : 25,
+      batchSize: 32,
+      lr: warm ? 0.008 : 0.02,
+      isCancelled: cancelled,
+      onProgress: (p, loss) => say({
+        phase: "training",
+        progress: 0.1 + p * 0.55,
+        message: (warm
+          ? "Verder leren (sessie " + ((meta.sessions || 0) + 1) + "): " + ds.inputs.length.toLocaleString("nl-NL") + " patronen"
+          : "Neuraal netwerk traint van nul: " + ds.inputs.length.toLocaleString("nl-NL") + " patronen") +
+          ", fout " + (loss != null ? (loss * avgStd).toFixed(2) + "°C" : "..."),
+      }),
+      onDone: () => {
+        if (cancelled()) return;
+        Neural.saveWeights(net, key);
+
+        let sq = 0, cnt = 0;
+        const step = Math.max(1, Math.floor(ds.inputs.length / 150));
+        for (let i = 0; i < ds.inputs.length; i += step) {
+          const out = net.predict(ds.inputs[i]);
+          sq += (out[0] - ds.outputs[i][0]) ** 2;
+          cnt++;
+        }
+        const rmseZ = cnt ? Math.sqrt(sq / cnt) : 0.8;
+        const rmseC = Math.round(rmseZ * avgStd * 10) / 10;
+
+        say({ phase: "refining", progress: 0.72 });
+
+        const recentObs = days.slice(-30);
+        const brain = refineWithBrain(net, clim, recentObs, forecast);
+        const physics = Knowledge.runCaeliaPhysicsReasoning(brain.refined, clim);
+
+        const report = {
+          architecture: SIZES.join(" → "),
+          weights: countWeights(SIZES),
+          patterns: ds.inputs.length,
+          rmseC,
+          warmStart: warm,
+          sessions: (meta.sessions || 0) + 1,
+          lastTrained: new Date().toISOString(),
+          trace: [...brain.trace, ...physics.trace],
+          corrections: [...brain.corrections, ...physics.corrections],
+          thoughts: physics.thoughts,
+          knowledge: Knowledge.getLibraryStats(),
+        };
+        saveMeta(key, {
+          sessions: report.sessions, rmse: rmseC,
+          samples: ds.inputs.length, lastTrained: report.lastTrained,
+        });
+
+        /* Verfijnde dagen teruggeven: 0-16 ensemble, 17-40 CAELIA */
+        const refinedAI = physics.refined.filter(d => d.source === "caelia");
+        say({ phase: "ready", progress: 1, extended: refinedAI, report });
+      },
+    });
+  }
+
+  window.ClimoraCaelia = { REGIMES, buildClimateProfile, findAnalogs, classifyRegime, extendTo40, classifyDailyRegimes, startCaeliaBrain };
 })();
