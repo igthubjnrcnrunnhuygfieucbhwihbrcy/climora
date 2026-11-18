@@ -28,7 +28,7 @@ SRV=$!
 trap 'kill $SRV 2>/dev/null' EXIT
 sleep 1
 
-paths="index.html privacy.html voorwaarden.html css/style.css \
+paths="index.html privacy.html voorwaarden.html css/style.css css/ui-refresh.css \
 js/i18n.js js/icons.js js/api.js js/captain.js js/caelia.js \
 js/chart.js js/radar.js js/main.js docs/DOMEIN.md"
 
